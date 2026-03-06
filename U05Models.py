@@ -288,7 +288,7 @@ predict_safe = None
 # ##### All
 
 # %%
-all_filename = "predict_all_256128_69066_20260123"
+all_filename = "predict_all_256128_58081_20260304"
 
 # Load the PredictAll wrapper
 with open(os.path.join(model_path, "M03. Plate Appearances", f"{all_filename}_wrapper.pkl"), "rb") as f:

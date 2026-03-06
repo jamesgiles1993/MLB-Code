@@ -28,6 +28,7 @@ def contests(date):
         contest_dict['contestDate'] = contest_dict['contestDate'].replace("/Date(", "").replace(")/","")
         contest_dict['contestTime'] = contest["sdstring"]
         contest_dict['gameType'] = contest['gameType']
+        contest_dict['entries'] = contest['m'] # New. Testing.
         
         # Append the extracted data to the list
         rows.append(contest_dict)
@@ -146,11 +147,8 @@ def results(contestKey, sleep_time=5):
     # Wait for file to download
     time.sleep(sleep_time)
     
-    # Specify the path to the Downloads directory
-    downloads_folder = r'C:\Users\james\Downloads'
-
     # Get a list of all files in the Downloads directory
-    files = os.listdir(downloads_folder)
+    files = os.listdir(download_path)
 
 
     # Filter the list to include files starting with 'contest-standings' and sort by modification time (most recent first)
@@ -158,7 +156,7 @@ def results(contestKey, sleep_time=5):
     print(search_term)
     relevant_files = [file for file in files if file.startswith(search_term)]
     # print(files)
-    sorted_files = sorted(relevant_files, key=lambda x: os.path.getmtime(os.path.join(downloads_folder, x)), reverse=True)
+    sorted_files = sorted(relevant_files, key=lambda x: os.path.getmtime(os.path.join(download_path, x)), reverse=True)
 
     print(sorted_files)
         
@@ -168,7 +166,7 @@ def results(contestKey, sleep_time=5):
         most_recent_file = sorted_files[0]
 
         # Specify the path to the most recent file
-        file_path = os.path.join(downloads_folder, most_recent_file)
+        file_path = os.path.join(download_path, most_recent_file)
 
         print(file_path)
         

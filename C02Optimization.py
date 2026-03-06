@@ -3,45 +3,45 @@ from U01Imports import *
 from U02Functions import *
 
 # %%
-# Combine player simulation CSVs into one dataframe
-def concat_player_sims(folder_path: str, position: str, n_jobs: int = -1) -> pd.DataFrame:
-    ### Read in data
-    # Select columns to read
-    if position == "batter":
-        columns = ['id', 'fullName', 'batting_order', 'imp_b_l', 'imp_b_r', 'confirmed', 'FP', 'team']
-    else:
-        columns = ['id', 'fullName', 'imp_p_l', 'imp_p_r', 'confirmed', 'FP', 'team']
-
-    # Specify files
-    folder = Path(folder_path)
-    file_paths = [file for file in folder.iterdir() if file.is_file() and file.suffix == '.csv' and file.name.startswith(position)]
-
-    # Read in CSVs, but only the specified columns 
-    dfs = Parallel(n_jobs=n_jobs)(delayed(pd.read_csv)(file, usecols=columns) for file in file_paths)
-
-    # Concatenate dataframes together
-    df = pd.concat(dfs, ignore_index=True)
-
-    ### Create new columns
-    # Identify home and away teams
-    away_team = folder_path.split("\\")[-1].split("@")[0]
-    home_team = (folder_path.split("\\")[-1]).split("@")[1].split(" ")[0]
-    # Identify game_id
-    game_id = folder_path.split(" ")[-2]
-
-    # Create team columns
-    df['away_team'] = away_team
-    df['home_team'] = home_team
-    df['TeamAbbrev'] = np.where(df['team'] == "away", df['away_team'], df['home_team'])
-    df['game_id'] = game_id
-
-
-    return df
-
-
-# %%
+# 1. Players
 # Creates player input file for optimization
-def create_player_file(contestKey, guide, draftGroupId, roto_slate, max_exposure_pitchers, max_exposure_batters, projections='roto', rostership='roto', ownership_spread=0.25):
+def create_player_file(contestKey, guide, draftGroupId, roto_slate, max_exposure_pitchers, max_exposure_batters, projections='roto', rostership='roto', ownership_spread=0.25, write_file=True):
+    # Combine player simulation CSVs into one dataframe
+    def concat_player_sims(folder_path: str, position: str, n_jobs: int = -1) -> pd.DataFrame:
+        ### Read in data
+        # Select columns to read
+        if position == "batter":
+            columns = ['id', 'fullName', 'batting_order', 'imp_b_l', 'imp_b_r', 'confirmed', 'FP', 'team']
+        else:
+            columns = ['id', 'fullName', 'imp_p_l', 'imp_p_r', 'confirmed', 'FP', 'team']
+
+        # Specify files
+        folder = Path(folder_path)
+        file_paths = [file for file in folder.iterdir() if file.is_file() and file.suffix == '.csv' and file.name.startswith(position)]
+
+        # Read in CSVs, but only the specified columns 
+        dfs = Parallel(n_jobs=n_jobs)(delayed(pd.read_csv)(file, usecols=columns) for file in file_paths)
+
+        # Concatenate dataframes together
+        df = pd.concat(dfs, ignore_index=True)
+
+        ### Create new columns
+        # Identify home and away teams
+        away_team = folder_path.split("\\")[-1].split("@")[0]
+        home_team = (folder_path.split("\\")[-1]).split("@")[1].split(" ")[0]
+        # Identify game_id
+        game_id = folder_path.split(" ")[-2]
+
+        # Create team columns
+        df['away_team'] = away_team
+        df['home_team'] = home_team
+        df['TeamAbbrev'] = np.where(df['team'] == "away", df['away_team'], df['home_team'])
+        df['game_id'] = game_id
+
+
+        return df
+    
+
     ### Step 1) Read in Draftables
     draftable_df = pd.read_csv(os.path.join(baseball_path, "A09. DraftKings", "2. Draftables", f"Draftables {draftGroupId}.csv"), dtype='str', encoding='iso-8859-1')
 
@@ -53,6 +53,11 @@ def create_player_file(contestKey, guide, draftGroupId, roto_slate, max_exposure
         draftable_df = draftable_df[draftable_df['alertType'] != "Postponed Game Alert"].reset_index(drop=True)
     
     ### Step 2) Read in Sims
+    # Check if folder exists
+    if not os.path.exists(os.path.join(baseball_path, "C01. Simulations", "2. Player Sims", f"Matchups {guide['date'][0]}")):
+        print(f"No simulation folder found for date {guide['date'][0]}. Check if simulations have been run for this date.")
+        return
+
     sim_dfs = []
     for folder in os.listdir(os.path.join(baseball_path, "C01. Simulations", "2. Player Sims", f"Matchups {guide['date'][0]}")):
         # Check if folder name contains any game_id
@@ -81,8 +86,11 @@ def create_player_file(contestKey, guide, draftGroupId, roto_slate, max_exposure
 
 
     # Concatenate all player sims together
-    sim_df = pd.concat(sim_dfs, ignore_index=True, axis=0)
-    
+    try:
+        sim_df = pd.concat(sim_dfs, ignore_index=True, axis=0)
+    except:
+        print("No simulation files found for any matchups on this date.")
+        return
 
     # Pivot
     # Create a new index for each FP instance within each `id`
@@ -175,11 +183,16 @@ def create_player_file(contestKey, guide, draftGroupId, roto_slate, max_exposure
     # Relevant columns
     player_columns = ['Position', 'Name + ID', 'Name', 'ID', 'Roster Position', 'Salary', 'Game Info', 'TeamAbbrev', 'AvgPointsPerGame', 'playerId', 'draftGroupId', 'game_id', 'Position2', 'imp_l', 'imp_r', 'confirmed', 'batting_order'] + fp_columns + ['rostership', 'roto_projection', 'Roster Order', 'Confirmed Starter', 'Min Exposure', 'Max Exposure']
 
-    
+    # Write to CSV
+    if write_file == True:
+        player_df[player_columns].sort_values(['AvgPointsPerGame'], ascending=False).to_csv(os.path.join(baseball_path, "C02. Optimization", "1. Players", f"Players {contestKey}.csv"), index=False, encoding='iso-8859-1')
+
+
     return player_df[player_columns].sort_values(['AvgPointsPerGame'], ascending=False)
 
 
 # %%
+# 2. Lineups
 # Uses optimizer to create DFS lineups
 def create_lineups(contestKey, min_salary=49000, min_projection=5, stack_list=[5, 2, 1], excluded_teams=[],
                    min_starters=10, strategy=None, max_deviation=0.2, progressive_growth=0.01, num_lineups=200, parameters='Max'):
@@ -229,8 +242,10 @@ def create_lineups(contestKey, min_salary=49000, min_projection=5, stack_list=[5
 
     print(f"{stack_list}: {num_lineups}/{num_lineups} - Finished!")
 
-    
+    optimizer.stack = stack_list
+
     return optimizer
+
 
 
 # %%
@@ -318,7 +333,11 @@ def write_lineups(optimizers, contestKey):
         temp_file = f'optimizer_{i}.csv'
         opt.export(temp_file)
         temp_files.append(temp_file)
-        dfs.append(pd.read_csv(temp_file))
+        df = pd.read_csv(temp_file)
+        # Add stack as string
+        df['stack'] = str(opt.stack)
+
+        dfs.append(df)
 
     combined_df = pd.concat(dfs, ignore_index=True).drop_duplicates().sort_values('FPPG', ascending=False)
     combined_df.to_csv(os.path.join(baseball_path, "C02. Optimization", "2. Lineups", f"Lineups {contestKey}.csv"), index=False)
@@ -329,10 +348,409 @@ def write_lineups(optimizers, contestKey):
 
 
 # %%
+# 3. Field Lineups
+def simulate_field_lineups(contestKey, 
+                           num_lineups=1000, 
+                           min_salary=45000, 
+                           max_salary=50000,
+                           stack_str='5-2-1',
+                           pitcher_exp=1.3,
+                           max_attempts=10000,
+                           write_file=True):
+    """
+    Generate DFS lineups with generic stack configuration.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Player pool including 'Roster Position', 'TeamAbbrev', 'Salary', 'rostership', 'Name + ID'.
+    num_lineups : int
+        Number of lineups to generate.
+    min_salary, max_salary : int
+        Hard salary bounds.
+    stack_str : str
+        Stack string like '5-2-1' or '4-4'.
+    pitcher_exp : float
+        Exponent to overweight pitcher rostership.
+    max_attempts : int
+        Max attempts before giving up.
+    write_file : bool
+        Whether to write the lineup file to disk.
+    """
+    
+    # Read in player sim results
+    try:
+        df = pd.read_csv(os.path.join(baseball_path, "C02. Optimization", "1. Players", f"Players {contestKey}.csv"), encoding='iso-8859-1')
+    except Exception as e:
+        print(f"Error reading player file for contestKey: {contestKey}. Check if the file exists and is properly formatted. Error: {e}")
+        return pd.DataFrame()
+
+    rng = np.random.default_rng()
+
+    df = df.copy()
+    df['Salary'] = pd.to_numeric(df['Salary'], errors='coerce')
+    df = df.dropna(subset=['Salary'])
+    df = df.sample(frac=1).reset_index(drop=True)  # Shuffle to remove ordering bias
+
+    df['p'] = (df['rostership'] / 100).clip(lower=0)
+    total_p = df['p'].sum()
+    df['p'] = df['p'] / total_p if total_p > 0 else 1 / len(df)
+
+    df['pos_list'] = df['Roster Position'].str.split('/')
+    df['is_pitcher'] = df['Roster Position'] == 'P'
+
+    hitters = df[~df['is_pitcher']].copy()
+    pitchers = df[df['is_pitcher']].copy()
+
+    # --- Precompute position masks ---
+    position_masks = {pos: hitters['pos_list'].apply(lambda x: pos in x).values
+                      for pos in ['C','1B','2B','3B','SS','OF']}
+
+    # Parse stack string into list of stack sizes
+    stack_sizes = [int(s) for s in stack_str.split('-')]
+
+    required_positions_template = {
+        'C': 1,
+        '1B': 1,
+        '2B': 1,
+        '3B': 1,
+        'SS': 1,
+        'OF': 3
+    }
+
+    lineups = []
+    lineup_budgets = []
+    attempts = 0
+
+    teams = hitters['TeamAbbrev'].unique()
+
+    while len(lineups) < num_lineups and attempts < max_attempts:
+        attempts += 1
+        chosen_ids = set()
+        lineup_dict = {'P': [], 'C': None, '1B': None, '2B': None,
+                       '3B': None, 'SS': None, 'OF': []}
+        lineup_salary = 0
+        valid = True
+
+        # --- Select stack teams ---
+        if len(stack_sizes) > len(teams):
+            continue  # cannot pick more teams than available
+
+        selected_teams = rng.choice(teams, size=len(stack_sizes), replace=False)
+        stack_counts = dict(zip(selected_teams, stack_sizes))
+
+        # --- Fill hitter positions ---
+        for position, count in required_positions_template.items():
+            for _ in range(count):
+                mask = position_masks[position]
+                eligible = hitters[mask]
+                # enforce stack counts
+                eligible = eligible[eligible['TeamAbbrev'].map(stack_counts).fillna(0) > 0]
+                ### TESTING - ensure non-missing weights ###
+                eligible['p'].fillna(0.001, inplace=True)
+                eligible = eligible[~eligible.index.isin(chosen_ids)]
+                if len(eligible) == 0:
+                    valid = False
+                    break
+
+                # vectorized stack weighting
+                weights = eligible['p'].values.copy()
+                team_array = eligible['TeamAbbrev'].values
+
+                # Stack boost
+                for team, sz in stack_counts.items():
+                    mask = (team_array == team)
+                    if sz >= 4:
+                        weights[mask] *= 1.15
+                    else:
+                        weights[mask] *= 1.05
+
+                # Guarantee non-negative
+                weights = np.clip(weights, 0, None)
+
+                weight_sum = weights.sum()
+
+                if weight_sum <= 0 or not np.isfinite(weight_sum):
+                    # fallback to uniform
+                    weights = np.ones(len(eligible)) / len(eligible)
+                else:
+                    weights /= weight_sum
+
+                chosen = rng.choice(eligible.index, p=weights)
+
+                lineup_salary += df.loc[chosen, 'Salary']
+                chosen_ids.add(chosen)
+                if position == 'OF':
+                    lineup_dict['OF'].append(chosen)
+                else:
+                    lineup_dict[position] = chosen
+                stack_counts[df.loc[chosen,'TeamAbbrev']] -= 1
+            if not valid:
+                break
+        if not valid:
+            continue
+
+        # --- Select pitchers ---
+        eligible_p = pitchers[~pitchers.index.isin(chosen_ids)]
+        if len(eligible_p) < 2:
+            continue
+        pitcher_weights = eligible_p['p'].values ** pitcher_exp
+        pitcher_weights /= pitcher_weights.sum()
+        chosen_pitchers = rng.choice(eligible_p.index, size=2, replace=False, p=pitcher_weights)
+        lineup_dict['P'] = list(chosen_pitchers)
+        lineup_salary += df.loc[chosen_pitchers, 'Salary'].sum()
+
+        # --- Hard salary check ---
+        if not (min_salary <= lineup_salary <= max_salary):
+            continue
+
+        # --- Build ordered lineup ---
+        lineup_ordered = [
+            lineup_dict['P'][0], lineup_dict['P'][1],
+            lineup_dict['C'], lineup_dict['1B'], lineup_dict['2B'], lineup_dict['3B'],
+            lineup_dict['SS'], lineup_dict['OF'][0], lineup_dict['OF'][1], lineup_dict['OF'][2]
+        ]
+        lineups.append(lineup_ordered)
+        lineup_budgets.append(lineup_salary)
+
+    if not lineups:
+        return pd.DataFrame()
+
+    # --- Convert to DataFrame ---
+    columns_order = ['P', 'P.1', 'C', '1B','2B','3B','SS','OF','OF.1','OF.2']
+    lineup_df = pd.DataFrame(lineups, columns=columns_order)
+    for col in lineup_df.columns:
+        lineup_df[col] = lineup_df[col].map(df['Name + ID'])
+    lineup_df['Budget'] = lineup_budgets
+
+    # --- FP aggregation ---
+    fp_cols = [c for c in df.columns if c.startswith('FP_')]
+    fp_mapping = df.set_index('Name + ID')[fp_cols]
+    fp_list = [fp_mapping.reindex(lineup_df[pos]).reset_index(drop=True) for pos in lineup_df.columns[:10]]
+    fp_concat = pd.concat(fp_list, axis=1)
+    fp_sums = fp_concat.T.groupby(level=0).sum().T
+    lineup_df = pd.concat([lineup_df, fp_sums], axis=1)
+    lineup_df['FPPG'] = fp_sums.mean(axis=1)
+    lineup_df = lineup_df[[col for col in lineup_df.columns if not col.startswith('FP_')]]
+    lineup_df = lineup_df.replace(r' \(', '(', regex=True)
+
+    print(f"Generated {len(lineups)} lineups in {attempts} attempts.")
+
+    # Write to CSV
+    if write_file == True:
+        lineup_df.to_csv(os.path.join(baseball_path, "C02. Optimization", "3. Field Lineups", f"Field Lineups {contestKey}.csv"), index=False, encoding='iso-8859-1')
+
+
+    return lineup_df
+
+
+# %%
+# 4. Porfolio lineups
+def choose_portfolio(contestKey, portfolio_size=20, n_iterations=1000, swap_size=2, random_seed=42, optimize_metric="Top_1pct_rate", write_file=True):
+    # Payout array
+    def build_payout_array(payout_df, contest_size):
+
+        # If contest_size is invalid (0 or None), infer from payout structure
+        if not contest_size or contest_size == 0:
+            contest_size = int(payout_df['maxPosition'].max())
+
+        payout_array = np.zeros(contest_size, dtype=float)
+
+        payouts = (
+            payout_df['payoutDescription']
+                .astype(str)
+                .str.replace('$', '', regex=False)
+                .str.replace(',', '', regex=False)
+                .str.strip()
+        )
+
+        payouts = pd.to_numeric(payouts, errors='coerce').fillna(0.0)
+
+        for start, end, payout in zip(
+            payout_df['minPosition'],
+            payout_df['maxPosition'],
+            payouts
+        ):
+            start_idx = max(0, int(start) - 1)
+            end_idx = min(contest_size, int(end))
+            payout_array[start_idx:end_idx] = payout
+
+        return payout_array
+    
+    # Score matrix
+    def build_score_matrix(lineup_df, player_df_indexed, player_cols):
+        sim_cols = [c for c in player_df_indexed.columns if c.startswith('FP_') or c.startswith('sim_')]
+        score_matrix = []
+
+        for _, lineup in lineup_df.iterrows():
+            player_ids = [lineup[col] for col in player_cols]
+            sims = player_df_indexed.loc[player_ids, sim_cols].sum(axis=0).values
+            score_matrix.append(sims)
+
+        return np.array(score_matrix)
+
+    # Portfolio evaluation
+    def evaluate_portfolio(selected_idx, my_scores, field_scores, payout_array, entry_fee, contest_size):
+        n_my = len(selected_idx)
+        n_field = field_scores.shape[0]
+        n_sims = my_scores.shape[1]
+
+        # Compute how many field lineups we can realistically add
+        n_field_needed = min(contest_size - n_my, n_field)
+        # n_total_simulated = n_my + n_field_needed
+
+        per_lineup_payouts = np.zeros((n_my, n_sims))
+        per_lineup_top1 = np.zeros((n_my, n_sims))
+        per_lineup_top5 = np.zeros((n_my, n_sims))
+
+        for s in range(n_sims):
+            # Sample field lineups if needed
+            if n_field_needed > 0:
+                sampled_field = np.random.choice(field_scores[:, s], size=n_field_needed, replace=False)
+                all_scores = np.concatenate([my_scores[selected_idx, s], sampled_field])
+            else:
+                all_scores = my_scores[selected_idx, s]
+
+            ranks = np.argsort(-all_scores).argsort()  # 0 = best
+            portfolio_ranks = ranks[:n_my]
+
+            # Use actual number of competitors in simulation to set thresholds
+            n_competitors = len(all_scores)
+            top1_threshold = max(1, int(np.ceil(0.01 * n_competitors)))
+            top5_threshold = max(1, int(np.ceil(0.05 * n_competitors)))
+
+            rank_clipped = np.minimum(portfolio_ranks, len(payout_array) - 1)
+            per_lineup_payouts[:, s] = payout_array[rank_clipped]
+
+            per_lineup_top1[:, s] = (portfolio_ranks < top1_threshold).astype(float)
+            per_lineup_top5[:, s] = (portfolio_ranks < top5_threshold).astype(float)
+
+        per_lineup_ev = per_lineup_payouts.mean(axis=1)
+        per_lineup_top1_rate = per_lineup_top1.mean(axis=1)
+        per_lineup_top5_rate = per_lineup_top5.mean(axis=1)
+
+        portfolio_ev = per_lineup_ev.sum() - entry_fee * n_my
+        portfolio_roi = portfolio_ev / (entry_fee * n_my) if entry_fee > 0 else 0
+        portfolio_std = per_lineup_payouts.sum(axis=0).std()
+        portfolio_top1_rate = per_lineup_top1_rate.mean()
+        portfolio_top5_rate = per_lineup_top5_rate.mean()
+
+        portfolio_metrics = {
+            "EV": portfolio_ev,
+            "ROI": portfolio_roi,
+            "StdDev": portfolio_std,
+            "Top_1pct_rate": portfolio_top1_rate,
+            "Top_5pct_rate": portfolio_top5_rate
+        }
+
+        return portfolio_metrics, per_lineup_ev, per_lineup_top1_rate, per_lineup_top5_rate
+
+    # Monte Carlo portfolio search
+    def monte_carlo_portfolio_search(lineup_df, my_scores, field_scores, payout_array, entry_fee,
+                                    contest_size, portfolio_size=20, n_iterations=1000, swap_size=2,
+                                    random_seed=42, optimize_metric="Top_1pct_rate"):
+
+        np.random.seed(random_seed)
+        n_candidates = len(lineup_df)
+        n_field = field_scores.shape[0]
+
+        if n_field + portfolio_size < contest_size:
+            print(f"WARNING: Simulated field + portfolio ({n_field + portfolio_size}) < contest size ({contest_size}). EV may be overestimated.")
+
+        projected_fp = lineup_df['FPPG'].values
+        top_indices = np.argsort(-projected_fp)[:portfolio_size]
+        best_portfolio = top_indices.copy()
+
+        # initial evaluation (no warning needed here)
+        metrics, _, _, _ = evaluate_portfolio(best_portfolio, my_scores, field_scores,
+                                            payout_array, entry_fee, contest_size)
+        best_value = metrics[optimize_metric]
+
+        for it in range(n_iterations):
+            swap_out = np.random.choice(best_portfolio, size=min(swap_size, portfolio_size), replace=False)
+            remaining_candidates = np.setdiff1d(np.arange(n_candidates), best_portfolio)
+            if len(remaining_candidates) == 0:
+                continue
+            swap_in = np.random.choice(remaining_candidates, size=len(swap_out), replace=False)
+            new_portfolio = best_portfolio.copy()
+            for o, i in zip(swap_out, swap_in):
+                new_portfolio[np.where(new_portfolio == o)[0][0]] = i
+
+            metrics, _, _, _ = evaluate_portfolio(new_portfolio, my_scores, field_scores,
+                                                payout_array, entry_fee, contest_size)
+            new_value = metrics[optimize_metric]
+            if new_value > best_value:
+                best_portfolio = new_portfolio
+                best_value = new_value
+                print(f"Iteration {it+1}: New best {optimize_metric} = {best_value:.4f}")
+
+        portfolio_metrics, per_lineup_ev, per_lineup_top1_rate, per_lineup_top5_rate = evaluate_portfolio(
+            best_portfolio, my_scores, field_scores, payout_array, entry_fee, contest_size
+        )
+
+        selected_lineups_df = lineup_df.iloc[best_portfolio].copy()
+        selected_lineups_df["EV_Payout"] = per_lineup_ev
+        selected_lineups_df["Top_1pct_rate"] = per_lineup_top1_rate
+        selected_lineups_df["Top_5pct_rate"] = per_lineup_top5_rate
+
+        return best_portfolio, portfolio_metrics, selected_lineups_df
+
+    # Read in necessary datasets
+    try:
+        player_df = pd.read_csv(os.path.join(baseball_path, "C02. Optimization", "1. Players", f"Players {contestKey}.csv"))
+        lineup_df = pd.read_csv(os.path.join(baseball_path, "C02. Optimization", "2. Lineups", f"Lineups {contestKey}.csv"))
+        field_lineup_df = pd.read_csv(os.path.join(baseball_path, "C02. Optimization", "3. Field Lineups", f"Field Lineups {contestKey}.csv"))
+        payout_df = pd.read_csv(os.path.join(baseball_path, "A09. DraftKings", "3. Payouts", f"Payouts {contestKey}.csv"))
+        contest_df = pd.read_csv(os.path.join(baseball_path, "B03. Contest Guides", f"Contest Guide {contestKey}.csv"))
+    except Exception as e: 
+        print(f"Error reading files for contest {contestKey}: {e}")
+        return None, None, None
+
+    print(payout_df)
+
+    # Clean player file Name + IDs to match lineup format
+    player_df['Name + ID'] = player_df['Name + ID'].str.replace(" (", "(", regex=False)
+
+    # Index player Name + ID for quick lookup
+    player_df_indexed = player_df.set_index('Name + ID')
+
+    # Set player position columns
+    player_cols = ['P','P.1','C','1B','2B','3B','SS','OF','OF.1','OF.2']
+
+    # Gather information from contest guide
+    contest_size = contest_df['entries'].iloc[0]
+    entry_fee = contest_df['entryFee'].iloc[0]
+
+    # Create payout and score arrays
+    payout_array = build_payout_array(payout_df, contest_size)
+    print(payout_array)
+
+    my_scores = build_score_matrix(lineup_df, player_df_indexed, player_cols)
+    field_scores = build_score_matrix(field_lineup_df, player_df_indexed, player_cols)
+
+    # Run portfolio optimization
+    best_idx, portfolio_metrics, selected_lineups_df = monte_carlo_portfolio_search(lineup_df, my_scores, field_scores, payout_array, entry_fee, contest_size, portfolio_size, n_iterations, swap_size, random_seed, optimize_metric)
+
+    print(f"Finished running contest {contestKey} portfolio optimization. Best {optimize_metric}: {portfolio_metrics[optimize_metric]:.4f}")
+
+    # Write to CSV
+    if write_file == True:
+        selected_lineups_df.to_csv(os.path.join(baseball_path, "C02. Optimization", "4. Portfolio Lineups", f"Portfolio Lineups {contestKey}.csv"), index=False)
+
+
+    return best_idx, portfolio_metrics, selected_lineups_df
+
+
+# %%
+# 5. Lineups Ranked
 # Rank lineups by sortby criteria
-def choose_lineups(contestKey, roto_slate, pareto_set, sense_list, sort_by, ascending_list):
+def rank_lineups(contestKey, pareto_set, sense_list, sort_by, ascending_list, lineup_type='Portfolio', write_file=True):
     # Read in players
-    player_sims = pd.read_csv(os.path.join(baseball_path, "C02. Optimization", "1. Players", f"Players {contestKey}.csv"))
+    try:
+        player_sims = pd.read_csv(os.path.join(baseball_path, "C02. Optimization", "1. Players", f"Players {contestKey}.csv"))
+    except:
+        print(f"Error: Players file not found for contestKey {contestKey}")
+        return None
 
     # Keep relevant variables
     player_sims.drop(columns={"Position", "Name", "ID", "Roster Position", "Salary", "Game Info", "TeamAbbrev", 'playerId', 'draftGroupId', 'game_id', 'Position2', 'imp_l', 'imp_r', "AvgPointsPerGame"}, inplace=True)
@@ -345,7 +763,20 @@ def choose_lineups(contestKey, roto_slate, pareto_set, sense_list, sort_by, asce
 
     
     # Read in daily lineups
-    lineup_sims = pd.read_csv(os.path.join(baseball_path, "C02. Optimization", "2. Lineups", f"Lineups {contestKey}.csv"))
+    if lineup_type == 'Optimizer':  # If we're ranking all optimized lineups
+        try:
+            lineup_sims = pd.read_csv(os.path.join(baseball_path, "C02. Optimization", "2. Lineups", f"Lineups {contestKey}.csv"))
+        except:
+            print(f"Error: Lineups file not found for contestKey {contestKey}")
+            return None
+    elif lineup_type == 'Portfolio':  # If we're ranking only portfolio lineups
+        try:
+            lineup_sims = pd.read_csv(os.path.join(baseball_path, "C02. Optimization", "4. Portfolio Lineups", f"Portfolio Lineups {contestKey}.csv"))
+        except:
+            print(f"Error: Portfolio Lineups file not found for contestKey {contestKey}")
+            return None
+    else:
+        print("Invalid lineup_type. Must be 'Optimizer' or 'Portfolio'.")
     
     # Merge stats onto lineups
     lineup_sims = lineup_sims.merge(player_sims, left_on="P", right_on="Name + ID", how='left', validate="m:1")
@@ -478,14 +909,20 @@ def choose_lineups(contestKey, roto_slate, pareto_set, sense_list, sort_by, asce
     lineup_sims = lineup_sims.loc[:, ~lineup_sims.columns.str.contains('roto_projection', case=False)]
 
     
+    # Write to CSV
+    if write_file == True:
+        lineup_sims.to_csv(os.path.join(baseball_path, "C02. Optimization", "5. Lineups Ranked", f"Lineups Ranked {contestKey}.csv"), index=False)
+    
+    
     return lineup_sims
 
 
 # %%
+# 6. Uploads
 # Create upload file for DraftKings
 def create_upload_file(contestKey, sort_by='Plus3'):
     # Read in lineup sims
-    lineup_ranked = pd.read_csv(os.path.join(baseball_path, "C02. Optimization", "3. Lineups Ranked", f"Lineups Ranked {contestKey}.csv"))
+    lineup_ranked = pd.read_csv(os.path.join(baseball_path, "C02. Optimization", "5. Lineups Ranked", f"Lineups Ranked {contestKey}.csv"))
     # # Sort (ascending because DK will put the bottom lineups at the top)
     # lineup_ranked.sort_values(by=sort_by, ascending=True, inplace=True)
     # Keep just the players
@@ -499,6 +936,7 @@ def create_upload_file(contestKey, sort_by='Plus3'):
 
 
 # %%
+# 7. Entries
 # Create entry file for DraftKings
 def create_entry_file(draftGroupId, contestKey):
     # Download entry file for draftGroupId
@@ -538,59 +976,6 @@ def create_entry_file(draftGroupId, contestKey):
 
 
 # %%
-# Main function to create contest lineups and derived files
-def create_contest_lineups(contestKey, sort_by, min_salary, min_projection, major_stack, minor_stack, max_exposure_batters, max_exposure_pitchers, excluded_teams, min_starters, lineups, historic):
-    # Read in Contest Guide
-    guide = pd.read_csv(os.path.join(baseball_path, "B03. Contest Guides", f"Contest Guide {contestKey}.csv"))
-
-    # Identify draftGroupId
-    draftGroupId = guide['draftGroupId'][0]
-
-    # Identify date
-    date = guide['date'][0]
-
-    # Identify RotoWire slate
-    roto_slate = guide['roto_slate'][0]
-    
-    # 1. Players
-    # This creates player files to be used as inputs in optimizer
-    draftables_with_sims = create_player_file(contestKey, guide, draftGroupId, date, roto_slate)    
-    draftables_with_sims.to_csv(os.path.join(baseball_path, "C02. Optimization", "1. Players", f"Players {contestKey}.csv"), index=False, encoding='iso-8859-1')
-    
-    # 2. Lineups
-    # This creates optimal lineups
-    create_lineups(contestKey, min_salary, min_projection, major_stack, minor_stack, excluded_teams, min_starters, lineups)
-    
-    # 3. Lineups Ranked
-    # This adds stats based on score distributions to assess which lineups to choose
-    lineups_ranked = choose_lineups(contestKey, roto_slate, sort_by)
-    lineups_ranked.to_csv(os.path.join(baseball_path, "C02. Optimization", "3. Lineups Ranked", f"Lineups Ranked {contestKey}.csv"), index=False)
-    
-    # 4. Uploads
-    # This creates a file to upload lineups to DraftKings in the proper order
-    if historic == False:
-        # Create upload file
-        upload = create_upload_file(contestKey, sort_by)
-        upload.to_csv(os.path.join(baseball_path, "C02. Optimization", "4. Uploads", f"Upload {contestKey}.csv"), index=False)
-
-    # 5. Entries
-    # This creates a file to upload entry-specific lineups
-    if historic == False:
-        entry = create_entry_file(draftGroupId, contestKey)
-        entry.to_csv(os.path.join(baseball_path, "C02. Optimization", "5. Entries", f"Entries {draftGroupId}.csv"), index=False, encoding='iso-8859-1')
-
-
-# %%
-# This returns contestKeys that do not work
-def create_contest_lineups2(contestKey, sort_by, min_salary, min_projection, major_stack, minor_stack, max_exposure_batters, max_exposure_pitchers, excluded_teams, min_starters, lineups, historic):
-    try:
-        return create_contest_lineups(contestKey, sort_by, min_salary, min_projection, major_stack, minor_stack, max_exposure_batters, max_exposure_pitchers, excluded_teams, min_starters, lineups, historic)
-    except Exception as e:
-        print(f"Error processing contestKey: {contestKey}. Exception: {e}")
-        return contestKey
-
-
-# %%
 # Email upload and entry files
 def email_upload_file(draftGroupId, contestKey, contestTime):    
     message = f"""\
@@ -601,7 +986,7 @@ def email_upload_file(draftGroupId, contestKey, contestTime):
     Entries: https://www.draftkings.com/entry/upload
     Uploads: https://www.draftkings.com/lineup/upload
     """
-lkasjdf 
+
     sender_email = os.getenv("EMAIL_ADDRESS")
     receiver_emails = [os.getenv("EMAIL_ADDRESS")]
     smtp_server = 'smtp.gmail.com'
@@ -618,8 +1003,8 @@ lkasjdf
     msg.attach(MIMEText(message, 'plain'))
 
     # Add Entry and Upload files as attachments
-    entry_path = os.path.join(baseball_path, "C02. Optimization", "5. Entries", f"Entries {draftGroupId}.csv")
-    upload_path = os.path.join(baseball_path, "C02. Optimization", "4. Uploads", f"Upload {contestKey}.csv")
+    entry_path = os.path.join(baseball_path, "C02. Optimization", "7. Entries", f"Entries {draftGroupId}.csv")
+    upload_path = os.path.join(baseball_path, "C02. Optimization", "6. Uploads", f"Upload {contestKey}.csv")
 
     def attach_file(file_path):
         with open(file_path, 'rb') as attachment:
@@ -668,7 +1053,7 @@ def upload_entries(draftGroupId):
     time.sleep(3)
 
     # Copy and paste the file path
-    filepath = rf"C:\Users\James\Documents\MLB\Data\C02. Optimization\5. Entries\Entries {draftGroupId}.csv"
+    filepath = rf"C:\Users\James\Documents\MLB\Data\C02. Optimization\7. Entries\Entries {draftGroupId}.csv"
     pyperclip.copy(filepath)
     pyautogui.hotkey("ctrl", "v")
     time.sleep(3)
@@ -690,5 +1075,3 @@ def excel_button(file_path):
 
 # %%
 __all__ = [name for name in globals() if not name.startswith("_")]
-
-

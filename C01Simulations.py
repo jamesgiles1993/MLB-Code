@@ -1576,6 +1576,129 @@ def log_pa_summary(pa_summary, baseball_path, filename='pa_summary_log.csv'):
         # Write the new row
         writer.writerow(pa_summary)
 
+# %%
+# Display gambling results for a given game
+def display_results(away_team, home_team, game_num, odds_df, game_scores_df, display_gambling_info):
+    # ANSI colors
+    GREEN = "\033[92m"
+    RED = "\033[91m"
+    RESET = "\033[0m"
+
+    # Base stats
+    game_scores_df['home_win'] = (game_scores_df['home_score'] > game_scores_df['away_score']).astype(int)
+
+    away_mean = game_scores_df['away_score'].mean()
+    home_mean = game_scores_df['home_score'].mean()
+    away_win_pct = (1 - game_scores_df['home_win'].mean()) * 100
+    home_win_pct = game_scores_df['home_win'].mean() * 100
+
+    # Helpers
+    def colorize_return(val):
+        if pd.isna(val):
+            return "nan"
+        if val > 1:
+            return f"{GREEN}{val:.2f}{RESET}"
+        if val < 1:
+            return f"{RED}{val:.2f}{RESET}"
+        return f"{val:.2f}"
+
+    def fmt_odds(odds):
+        if pd.isna(odds):
+            return " nan"
+        odds_int = int(odds)
+        return f"{odds_int:>4}" if odds_int < 0 else f" {odds_int:>3}"
+
+    if display_gambling_info:
+        r = expected_returns(home_team, game_num, odds_df, game_scores_df)
+
+        away_line = (
+            f"{away_team:<4}"
+            f"{away_mean:.2f} ({away_win_pct:.2f}%) "
+            f"ML {colorize_return(r['ML1']['return'])} ({fmt_odds(r['ML1']['odds'])}) "
+            f"Spr {colorize_return(r['Spread1']['return'])} ({fmt_odds(r['Spread1']['odds'])}) "
+            f"Ovr {colorize_return(r['Ou1']['return'])} ({fmt_odds(r['Ou1']['odds'])})"
+        )
+
+        home_line = (
+            f"{home_team:<4}"
+            f"{home_mean:.2f} ({home_win_pct:.2f}%) "
+            f"ML {colorize_return(r['ML2']['return'])} ({fmt_odds(r['ML2']['odds'])}) "
+            f"Spr {colorize_return(r['Spread2']['return'])} ({fmt_odds(r['Spread2']['odds'])}) "
+            f"Und {colorize_return(r['Ou2']['return'])} ({fmt_odds(r['Ou2']['odds'])})"
+        )
+    else:
+        away_line = f"{away_team:<4}{away_mean:.2f} ({away_win_pct:.2f}%)"
+        home_line = f"{home_team:<4}{home_mean:.2f} ({home_win_pct:.2f}%)"
+
+    print(away_line)
+    print(home_line)
+
+# %%
+# Calculate expected returns for a given game
+def expected_returns(home_team, game_num, odds_df, game_scores_df):
+    # Filter to rows for this home team
+    home_games = odds_df[odds_df['HomeTeamShort'] == home_team]
+
+    if home_games.empty or game_num > len(home_games):
+        raise ValueError(f"No odds found for {home_team} game #{game_num}")
+
+    # Select the correct instance (1-indexed)
+    odds = home_games.iloc[game_num - 1]
+
+    spread = odds['Spread']
+    ou = odds['OU']
+
+    sm1, sm2 = odds['SpreadMoney1'], odds['SpreadMoney2']
+    ou1, ou2 = odds['OuMoney1'], odds['OuMoney2']
+    ml1, ml2 = odds['MLMoney1'], odds['MLMoney2']
+
+    def american_return(odds):
+        if pd.isna(odds):
+            return np.nan
+        return 1 + (odds / 100 if odds > 0 else 100 / abs(odds))
+
+    sm1_r, sm2_r = american_return(sm1), american_return(sm2)
+    ou1_r, ou2_r = american_return(ou1), american_return(ou2)
+    ml1_r, ml2_r = american_return(ml1), american_return(ml2)
+
+    df = game_scores_df.copy()
+    margin = df['away_score'] - df['home_score']
+    total = df['away_score'] + df['home_score']
+
+    def mean_or_nan(series, odds_val):
+        return np.nan if pd.isna(odds_val) else series.mean()
+
+    # ----- Spread -----
+    spread1 = (margin > spread) * sm1_r
+    spread2 = (margin < spread) * sm2_r
+    spread1[margin < spread] = 0
+    spread2[margin > spread] = 0
+    spread1[margin == spread] = 1
+    spread2[margin == spread] = 1
+
+    # ----- Over / Under -----
+    ou1_pay = (total > ou) * ou1_r
+    ou2_pay = (total < ou) * ou2_r
+    ou1_pay[total < ou] = 0
+    ou2_pay[total > ou] = 0
+    ou1_pay[total == ou] = 1
+    ou2_pay[total == ou] = 1
+
+    # ----- Moneyline -----
+    ml1_pay = (df['away_score'] > df['home_score']) * ml1_r
+    ml2_pay = (df['home_score'] > df['away_score']) * ml2_r
+    ml1_pay[df['away_score'] < df['home_score']] = 0
+    ml2_pay[df['home_score'] < df['away_score']] = 0
+
+    return {
+        'Spread1': {'return': mean_or_nan(spread1, sm1), 'odds': sm1},
+        'Spread2': {'return': mean_or_nan(spread2, sm2), 'odds': sm2},
+        'Ou1': {'return': mean_or_nan(ou1_pay, ou1), 'odds': ou1},
+        'Ou2': {'return': mean_or_nan(ou2_pay, ou2), 'odds': ou2},
+        'ML1': {'return': mean_or_nan(ml1_pay, ml1), 'odds': ml1},
+        'ML2': {'return': mean_or_nan(ml2_pay, ml2), 'odds': ml2}
+    }
+
 
 # %%
 __all__ = [name for name in globals() if not name.startswith("_")]
