@@ -1,43 +1,28 @@
-# %%
 from U01Imports import *
-from U02Functions import *
-from U04Datasets import *
-from U05Models import *
-
 
 # %% 
 # Determine HBP counts for batters and pitchers
 def extract_hbp_counts(box_df):
-    # Filter rows where label is "HBP"
     hbp_row = box_df[box_df['label'] == 'HBP']
-    
-    
+
     if hbp_row.empty:
-        return pd.DataFrame(columns=['name', 'count']), pd.DataFrame(columns=['name', 'count'])
+        return pd.DataFrame(columns=['name', 'hbp']), pd.DataFrame(columns=['name', 'hbp'])
 
-    # Extract batter and pitcher names
     hbp_values = hbp_row['value'].iloc[0]
-    hbp_matches = re.findall(r'([^();]+)\s+by\s+([)]+)by\s+([^)]+)', hbp_values)
+    hbp_matches = re.findall(r'([^;(]+?)\s*\(by\s+([^)]+)\)', hbp_values)
 
-    # Split into batter and pitcher lists
     batter_names = []
     pitcher_names = []
     for match in hbp_matches:
         batter_names.append(match[0].strip())
         pitcher_names.append(match[1].strip())
 
-    # Creating DataFrames for batters and pitchers
-    batter_hbp_df = pd.DataFrame({'name': batter_names})
-    pitcher_hbp_df = pd.DataFrame({'name': pitcher_names})
-
-    # Counting occurrences
-    batter_hbp_count = batter_hbp_df['name'].value_counts().reset_index()
+    batter_hbp_count = pd.DataFrame({'name': batter_names})['name'].value_counts().reset_index()
     batter_hbp_count.columns = ['name', 'hbp']
 
-    pitcher_hbp_count = pitcher_hbp_df['name'].value_counts().reset_index()
+    pitcher_hbp_count = pd.DataFrame({'name': pitcher_names})['name'].value_counts().reset_index()
     pitcher_hbp_count.columns = ['name', 'hbp']
 
-    
     return batter_hbp_count, pitcher_hbp_count
 
 

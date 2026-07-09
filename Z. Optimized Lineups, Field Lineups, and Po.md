@@ -8,11 +8,11 @@ We're creating files containing three types of lineups:
 Stacking:
     Optimized Lineups: should create whatever stacks perform best against the field
     Field Lineups: should create stacks to resemble the field (and we already have this!)
-    Portfolio: should be a subset of the optimized lineups
+    Portfolio: shouldn't care about stacking except insofar as it affects performance vs the field
 
 Challenges:
-    Optimized Lineups: benefit from multithreaded runs, but 
-    Field Lineups: just haven't implemented other stack types yet
+    Optimized Lineups: benefit from multithreaded runs, but not true parallelism
+    Field Lineups: just haven't implemented other stack types yet. Should be able to do parallelism across contests and threading for individual contests
 
 Parallelism:
     The right approach for using parallelism to maximize speed may differ depending on if we're running day-of or backtesting
@@ -24,25 +24,11 @@ Parallelism:
         Eat cake: parallelize across stacks day of and contests for backtesting
 
 
-# For day of
-def field_parallel()
-    lineup_list = parallel(field_lineup)
-
-    field_df = pd.concat(lineup_list)
-
-# For backtesting
-def field_parallel()
-    lineup_list = []
-    for stack in stack_list:
-        lineup_df = field_lineup(stack)
-
-        lineup_list.append(lineup_df)
-
-    field_df = pd.concat(lineup_list)
-
-
-Open Questions:
-    Can I joblib pydfs if I do so across contests and not within?
-
-    Can I multithread while joblibbing?
-    
+Optimized Lineups Strategy:
+    Lineups are currently created to resemble the field
+    They should be created to choose the best possible candidates for the portfolio
+    5-3 performs the best on average. However, it still may make sense to make other stack types:
+        5-3 breaks often
+        Other stacks are close
+        Process should be able to identify when a 5-2-1 would outperform a 5-3, so having another stack type should be fine
+        We may have runtime available anyway (not much slower to add another stack or two)

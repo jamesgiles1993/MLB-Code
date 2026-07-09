@@ -1,12 +1,21 @@
 from U01Imports import *
 from U02Functions import *
 from U04Datasets import *
-from U05Models import *
+# from U05Models import *
 
-# %%
 # Creates matchup files for all games in game_df
-def create_all_matchups(game_df, baseball_path, team_dict, year, todaysdate_dash,
-                        batter_inputs, pitcher_inputs, n_jobs=-2):
+def create_all_matchups(game_df, baseball_path, team_dict,
+                        batter_inputs, pitcher_inputs, start_date, n_jobs=-2):
+
+    start_dt = pd.to_datetime(start_date, format='%Y%m%d')
+
+    # Keep records >= start_dt, plus each id's most recent pre-cutoff record as a
+    # fallback so merge_asof never loses a player whose latest data predates the cutoff.
+    # Result is identical to no filtering, but drops the bulk of old history.
+    def filter_recent(df, start_dt):
+        recent = df[df['date_time'] >= start_dt]
+        last_before = df[df['date_time'] < start_dt].drop_duplicates('id', keep='last')
+        return pd.concat([recent, last_before]).sort_values('date_time')
 
     # ---------------------------
     # 1️⃣ Read big datasets once
@@ -14,27 +23,16 @@ def create_all_matchups(game_df, baseball_path, team_dict, year, todaysdate_dash
     complete_dataset = pd.read_csv(os.path.join(baseball_path, "PA Dataset.csv"))
     complete_dataset = complete_dataset.replace([float('inf'), float('-inf')], 0)
 
-    steamer_hitters_df = pd.read_csv(os.path.join(baseball_path, "A03. Steamer", "steamer_hitters_weekly_log.csv"), encoding='iso-8859-1')
-    steamer_hitters_df_current = pd.read_csv(os.path.join(baseball_path, "A03. Steamer", "steamer_hitters.csv"), encoding='iso-8859-1')
-    steamer_hitters_df_current['proj_year'] = steamer_hitters_df_current['proj_season']
-    steamer_hitters_df = pd.concat([steamer_hitters_df, steamer_hitters_df_current], axis=0)
+    steamer_hitters_df = pd.read_csv(os.path.join(baseball_path, "A03. Steamer", "Hitters", "Steamer Hitters Dataset.csv"), encoding='iso-8859-1')
+    steamer_pitchers_df = pd.read_csv(os.path.join(baseball_path, "A03. Steamer", "Pitchers", "Steamer Pitchers Dataset.csv"), encoding='iso-8859-1')
 
-    steamer_pitchers_df = pd.read_csv(os.path.join(baseball_path, "A03. Steamer", "steamer_pitchers_weekly_log.csv"), encoding='iso-8859-1')
-    steamer_pitchers_df_current = pd.read_csv(os.path.join(baseball_path, "A03. Steamer", "steamer_pitchers.csv"), encoding='iso-8859-1')
-    steamer_pitchers_df_current['proj_year'] = steamer_pitchers_df_current['proj_season']
-    steamer_pitchers_df = pd.concat([steamer_pitchers_df, steamer_pitchers_df_current], axis=0)
-
-    steamer_hitters_df['proj_year'].fillna(year, inplace=True)
-    steamer_hitters_df['proj_date'].fillna(todaysdate_dash, inplace=True)
     steamer_hitters_df = clean_steamer_hitters(steamer_hitters_df)
 
-    steamer_pitchers_df['proj_year'].fillna(year, inplace=True)
-    steamer_pitchers_df['proj_date'].fillna(todaysdate_dash, inplace=True)
     steamer_pitchers_df = clean_steamer_pitchers(steamer_pitchers_df)
     steamer_pitchers_df.dropna(subset=['mlbamid'], inplace=True)
 
     # ---------------------------
-    # 2️⃣ Prepare vs_ datasets 
+    # 2️⃣ Prepare vs_ datasets
     # ---------------------------
 
     # Batter splits (keyed on batter)
@@ -54,13 +52,22 @@ def create_all_matchups(game_df, baseball_path, team_dict, year, todaysdate_dash
         df_tmp['date_time'] = pd.to_datetime(df_tmp['date'], format='%Y%m%d')
         df_tmp.sort_values('date_time', inplace=True)
 
+    # Filter (done after the loop because rebinding df_tmp inside the loop
+    # wouldn't affect the original frames)
+    vs_lhp_bat = filter_recent(vs_lhp_bat, start_dt)
+    vs_rhp_bat = filter_recent(vs_rhp_bat, start_dt)
+    vs_lhb_pit = filter_recent(vs_lhb_pit, start_dt)
+    vs_rhb_pit = filter_recent(vs_rhb_pit, start_dt)
+
     steamer_hitters_df['date_time'] = pd.to_datetime(steamer_hitters_df['date'], format='%Y%m%d')
-    steamer_hitters_df.sort_values('date_time', inplace=True)
     steamer_hitters_df['id'] = steamer_hitters_df['mlbamid'].astype(int).astype(str)
+    steamer_hitters_df.sort_values('date_time', inplace=True)
+    steamer_hitters_df = filter_recent(steamer_hitters_df, start_dt)
 
     steamer_pitchers_df['date_time'] = pd.to_datetime(steamer_pitchers_df['date'], format='%Y%m%d')
-    steamer_pitchers_df.sort_values('date_time', inplace=True)
     steamer_pitchers_df['id'] = steamer_pitchers_df['mlbamid'].astype(int).astype(str)
+    steamer_pitchers_df.sort_values('date_time', inplace=True)
+    steamer_pitchers_df = filter_recent(steamer_pitchers_df, start_dt)
 
     # ---------------------------
     # 3️⃣ Inner function: single game
@@ -91,6 +98,9 @@ def create_all_matchups(game_df, baseball_path, team_dict, year, todaysdate_dash
             bullpen_df['id'] = bullpen_df['id'].apply(lambda x: x.replace('.0', '') if isinstance(x, str) else x)
             bullpen_df = bullpen_df[bullpen_df['id'].notna() & (bullpen_df['id'] != "")]
 
+            # Only keep one observation per player (weirdly necessary - team depth charts are weird)
+            bullpen_df = bullpen_df.drop_duplicates('id', keep='first')
+
             team_df = pd.merge(roster_df, order_df[['id', 'fullName', 'position', 'status', 'order']], on='id', how='outer', suffixes=("", "2"))
 
             team_df['batSide'].fillna('Right', inplace=True)
@@ -107,7 +117,7 @@ def create_all_matchups(game_df, baseball_path, team_dict, year, todaysdate_dash
             team_df['away_starter'] = team_df['away_starter'].apply(remove_accents)
             team_df['home_starter'] = team_df['home_starter'].apply(remove_accents)
 
-            # Merge in RP Leverage        
+            # Merge in RP Leverage
             team_df = pd.merge(team_df, bullpen_df[['id', 'Leverage']], on='id', how='left')
 
 
@@ -134,6 +144,7 @@ def create_all_matchups(game_df, baseball_path, team_dict, year, todaysdate_dash
 
             batter_df['date_time'] = pd.to_datetime(batter_df['date'], format='%Y%m%d')
             batter_df['date_time'].fillna(batter_df['date_time'].min(), inplace=True)
+            batter_df = batter_df.sort_values('date_time').reset_index(drop=True)
 
             batter_df = pd.merge_asof(
                 batter_df,
@@ -156,6 +167,7 @@ def create_all_matchups(game_df, baseball_path, team_dict, year, todaysdate_dash
 
             pitcher_df['date_time'] = pd.to_datetime(pitcher_df['date'], format='%Y%m%d')
             pitcher_df['date_time'].fillna(pitcher_df['date_time'].min(), inplace=True)
+            pitcher_df = pitcher_df.sort_values('date_time').reset_index(drop=True)
 
             pitcher_df = pd.merge_asof(
                 pitcher_df,
@@ -186,8 +198,8 @@ def create_all_matchups(game_df, baseball_path, team_dict, year, todaysdate_dash
 
         matchup_path = os.path.join(matchup_dir, f"{away_team}@{home_team} {game_id} {formatted_time}.xlsx")
 
-        away_batter_df.to_excel(matchup_path, sheet_name="AwayBatters", index=False)
-        with pd.ExcelWriter(matchup_path, mode="a", engine="openpyxl") as writer:
+        with pd.ExcelWriter(matchup_path, engine="xlsxwriter") as writer:
+            away_batter_df.to_excel(writer, sheet_name="AwayBatters", index=False)
             home_batter_df.to_excel(writer, sheet_name="HomeBatters", index=False)
             away_pitcher_df.to_excel(writer, sheet_name="AwayPitchers", index=False)
             home_pitcher_df.to_excel(writer, sheet_name="HomePitchers", index=False)
@@ -197,10 +209,9 @@ def create_all_matchups(game_df, baseball_path, team_dict, year, todaysdate_dash
     # ---------------------------
     # 4️⃣ Parallel execution
     # ---------------------------
-    _ = Parallel(n_jobs=n_jobs, verbose=True)(delayed(process_single_game)(row)for row in range(len(game_df)))
+    Parallel(n_jobs=n_jobs, verbose=True)(delayed(process_single_game)(row) for row in range(len(game_df)))
+    
 
-
-# %%
 __all__ = [name for name in globals() if not name.startswith("_")]
 
 

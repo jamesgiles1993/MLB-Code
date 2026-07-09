@@ -1,4 +1,8 @@
 Z. Notes:
+20260415
+Season-Long Projections to ROS Projections
+Accidentally grabbed season-long projections instead of ROS from FanGraphs. Whoops. Not a big deal. Just a couple weeks of data. Beginning of season projection was probably fine anyway. Should be accurate from 4/15/2026 onward.
+
 20250819:
 I believe I solved my imputed pitcher problems. In short, I was filling missings with 0s for all players. This was correct except for imp_p and imp_b. These should have been filled with 1s because these players are imputed. Fixing this and retraining the pulls model on 2024 cleared up this issue and my imputed pitchers now test well.
 

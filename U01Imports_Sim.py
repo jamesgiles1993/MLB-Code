@@ -1,165 +1,34 @@
-# U01. Imports
-# This imports Python packages, display settings, and some common variable and stat lists
+# U01. Imports-Sim
+# This provides a lighter selection of imports, minimizing load required by joblib works
 # Type: Utility
 # Run Frequency: Frequent
 # Created: 11/1/2023
 # Updated: 8/20/2025
 
-### Installs
-# import sys
-# !{sys.executable} -m pip install \
-# tensorflow \
-# keras \
-# opencv-python \
-# ipywidgets \
-# joblib \
-# openmeteo-requests \
-# polars \
-# plotly \
-# pyautogui \
-# pyperclip \
-# pytz \
-# requests \
-# requests-cache \
-# selenium \
-# unidecode \
-# xlrd \
-# beautifulsoup4 \
-# lxml \
-# MLB-StatsAPI \
-# openpyxl \
-# paretoset \
-# cloudscraper \
-# pulp \
-# pybaseball \
-# pydfs-lineup-optimizer \
-# retry-requests \
-# thefuzz \
-# tqdm \
-# webdriver-manager \
-# python-dateutil \
-# seaborn \
-# scikit-learn \
-# sqlalchemy \
-# scipy \
-# statsmodels \
-# sklearn
-
 
 
 ### Packages
-import ast
-import cloudscraper
-import concurrent.futures
 import csv
-import cv2
-import datetime
-import dateutil.parser
-import distutils.dir_util
-import gc
 import glob
-import IPython.display
-import ipywidgets as widgets
-import joblib
-import json
-import keras
 import math
-import matplotlib.pyplot as plt
-import mss
 import numpy as np
-import openmeteo_requests
 import os
 import pandas as pd
-import pathlib
 import pickle
-import polars as pl
-import plotly.express as px
-import pyautogui
-import pyperclip
 import pytz
-import re
-import requests
-import requests_cache
-import seaborn as sns
-import selenium
-import shutil
-import smtplib
-import ssl
-import sqlite3
-import statsapi
-import statsmodels.formula.api as smf
-import statsmodels.api as sm
-import subprocess
-import sys
-import tensorflow as tf
-import time
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-import traceback
-import unidecode
-import warnings
-import webbrowser
-import xlrd
 import random
-import urllib
-import zipfile
-import __main__
+import re
+import shutil
+import statsapi
+import time
+import torch.nn as nn
+import warnings
+import datetime
 
-from bs4 import BeautifulSoup
-from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from dateutil import parser
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
-from email import encoders
-from functools import partial
-from io import StringIO
-from IPython.display import display, Javascript, clear_output
 from joblib import Parallel, delayed
-from lxml import html
-from openpyxl import load_workbook
-from paretoset import paretoset
-from pathlib import Path
-from pulp import GLPK_CMD  
-from pybaseball import statcast
-from pydfs_lineup_optimizer import get_optimizer, Site, Sport, Player, TeamStack, PlayerFilter, RandomFantasyPointsStrategy, ProgressiveFantasyPointsStrategy, AfterEachExposureStrategy, LineupOptimizer
-# from pydfs_lineup_optimizer.solvers.mip_solver import MIPSolver
-from pydfs_lineup_optimizer.solvers import PuLPSolver
-import pytz
-from retry_requests import retry
-from scipy import stats
-from scipy.stats import ttest_ind, mannwhitneyu, ttest_1samp
-from scipy.stats.mstats import winsorize
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.chrome.service import Service
-from selenium import webdriver
-from sklearn.ensemble import VotingClassifier
-from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, OneHotEncoder, LabelEncoder
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import train_test_split
 from sklearn.neural_network import MLPClassifier, MLPRegressor
-from sklearn.svm import SVC
-from statsapi import get
-from sqlalchemy import create_engine
-from tensorflow.keras.losses import KLDivergence
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, BatchNormalization, Dropout
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import EarlyStopping
 from thefuzz import process
-from timezonefinder import TimezoneFinder
-from tqdm import tqdm
-from urllib.request import urlopen, Request
-from webdriver_manager.chrome import ChromeDriverManager
 
 
 
@@ -256,7 +125,6 @@ batter_stats_fg = ['b1_rate', 'b2_rate', 'b3_rate', 'hr_rate', 'bb_rate', 'hbp_r
 pitcher_stats_fg = ['H9', 'HR9', 'K9', 'BB9', 'GBrate', 'FBrate', 'LDrate', 'SIERA']
 
 
-
 ### Create Universal Team Map Dictionary
 team_map = pd.read_csv(os.path.join(baseball_path, "Utilities", "Team Map.csv"))
 
@@ -274,6 +142,7 @@ for _, row in team_map.iterrows():
         value = row[column]
         if pd.notna(value):  # Skip NaN values
             team_dict[value] = bbref_team
+
 
 
 

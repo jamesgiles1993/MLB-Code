@@ -1,26 +1,17 @@
-# %% [markdown]
-# # U04. Datasets
-# - This imports functions used to create commonly-used dataset
-# - Type: Utility
-# - Run Frequency: Frequent
-# - Created: 11/1/2023
-# - Updated: 8/20/2025
+# U04. Datasets
+# This imports functions used to create commonly-used dataset
+# Type: Utility
+# Run Frequency: Frequent
+# Created: 11/1/2023
+# Updated: 8/20/2025
 
-
-# %%
+### Imports 
 from U01Imports import *
 
-# %% [markdown]
-# ### MLB Stats API
 
-# %% [markdown]
-# ##### Box Score
 
-# %% [markdown]
+### Box Score
 # Extract game information from boxscore
-
-# %%
-# Read in boxscore for weather
 def create_box(gamePk):
     # Read in boxscore as json
     box = pd.json_normalize(statsapi.boxscore_data(gamePk, timecode=None), record_path='gameBoxInfo')
@@ -47,23 +38,19 @@ def create_box(gamePk):
         missing_weather = False
         
     
-    
     return weather, wind, venue, date, missing_weather
 
-# %% [markdown]
-# Extract relevant data or provide default (helper function)
 
-# %%
+
+### Play-by-Play
+# Helper function: Extract relevant data or provide default (helper function)
 def extract_field(data, field, default=None):
     try:
         return data[field]
     except:
         return default
 
-# %% [markdown]
 # Extract play-by-play data
-
-# %%
 def create_play_by_play(gamePk):
     game = statsapi.get('game_playByPlay', {'gamePk': gamePk})
     
@@ -134,10 +121,7 @@ def create_play_by_play(gamePk):
     
     return df
 
-# %% [markdown]
-# Extract API data
-
-# %%
+### Stats API data
 def plays_statsapi(start_date, end_date):
     # Extract year
     year = start_date[-4:]
@@ -170,16 +154,9 @@ def plays_statsapi(start_date, end_date):
     
     return df
 
-# %%
 
 
-# %% [markdown]
-# ### Statcast
-
-# %% [markdown]
-# Extract Statcast data
-
-# %%
+### Statcast Data
 def plays_statcast(start_date, end_date):
     # Extract year
     year = start_date[:4]
@@ -217,16 +194,10 @@ def plays_statcast(start_date, end_date):
     
     return data
 
-# %%
 
 
-# %% [markdown]
-# ### Complete Dataset
-
-# %% [markdown]
-# ##### 1. Merge Datasets
-
-# %%
+### Complete Dataset
+##### 1. Merge Datasets
 def process_year(year):
     statsapi_df = pd.read_csv(os.path.join(baseball_path, "A02. MLB API", "1. Stats API", f"Stats API {year}.csv"), encoding='iso-8859-1')
     statcast_df = pd.read_csv(os.path.join(baseball_path, "A02. MLB API", "2. Statcast", f"Statcast {year}.csv"), encoding='iso-8859-1')
@@ -235,6 +206,7 @@ def process_year(year):
     merged_df.drop_duplicates(['gamePk', 'atBatIndex'], keep='first', inplace=True)
     merged_df.drop(columns={'game_type_copy'}, inplace=True)
 
+    
     return merged_df
 
 def merge_datasets(start_year=2015, end_year=2025):
@@ -250,10 +222,7 @@ def merge_datasets(start_year=2015, end_year=2025):
 
     return df
 
-# %% [markdown]
-# ##### 2. Clean Weather
-
-# %%
+##### 2. Clean Weather
 def clean_weather(df):
     import numpy as np
 
@@ -309,11 +278,7 @@ def clean_weather(df):
 
     return df
 
-
-# %% [markdown]
-# ##### 3. Create PA Events
-
-# %%
+##### 3. Create PA Events
 # Assign play categories to full descriptions
 def create_events(df):
     event_mapping = {
@@ -351,10 +316,7 @@ def create_events(df):
     
     return df
 
-# %% [markdown]
-# ##### 4. Create Variables
-
-# %%
+##### 4. Create Variables
 # This turns several variables, including events, venues, hands, and bases into dummies
 def create_variables(df):    
     # Events
@@ -472,17 +434,13 @@ def create_variables(df):
     df['to_r'] = np.where(df['spray_angle'].isna(), 0,
                           (df['spray_angle'] > 27).astype(int))
 
-
     # Sort
     df.sort_values(['date', 'gamePk', 'atBatIndex'], inplace=True)
 
     
     return df
 
-# %% [markdown]
-# ##### 5. Park Adjustments
-
-# %%
+##### 5. Park Adjustments
 def park_adjustments(df, multiplier_df):       
     # Merge with park factors
     pfx_columns = [col for col in multiplier_df.columns if "pfx" in col]
@@ -500,10 +458,7 @@ def park_adjustments(df, multiplier_df):
     
     return df
 
-# %% [markdown]
-# ##### 6. Starter Stats
-
-# %%
+##### 6. Starter Stats
 def start_data(df):
     original_index = df.index  # Save the original index
     
@@ -573,11 +528,7 @@ def start_data(df):
     
     return result
 
-
-# %% [markdown]
-# ##### 7. Rolling Stats
-
-# %%
+##### 7. Rolling Stats
 def rolling_pas(df, pa_num, events_list):
     # Renaming columns on df before conversion to Polars
     df.rename(columns={'hit_distance_sc': 'totalDistance', 'launch_speed': 'launchSpeed'}, inplace=True)
@@ -681,10 +632,8 @@ def rolling_pas(df, pa_num, events_list):
     return df_copy
 
 
-# %% [markdown]
-# ##### Model Inputs
 
-# %%
+##### Model Inputs
 def create_pa_inputs(multiplier_df, start_year=2014, end_year=2024, short=50, long=300, adjust=True):
     # If we're creating a new complete dataset
     # if generate == True:
@@ -761,24 +710,17 @@ def create_pa_inputs(multiplier_df, start_year=2014, end_year=2024, short=50, lo
     
     return complete_dataset
 
-# %%
 
-
-# %% [markdown]
-# ### Steamer
-
-# %% [markdown]
-# ##### 1. Hitters
-
-# %%
+### Steamer
+##### 1. Hitters
 def clean_steamer_hitters(df):
     # Basic stats
     hit_list = ['1B', '2B', '3B', 'HR', 'BB', 'HBP', 'K']
-
+    
     # Advance stats
     rate_list = ['OBP', 'SLG', 'wOBA']
     for stat in hit_list:
-        rate = stat + "_rate"
+        rate = f"{stat.lower()}_rate"
         rate_list.append(rate)
         df[rate] = df[stat] / df['PA']
 
@@ -788,7 +730,7 @@ def clean_steamer_hitters(df):
     df['SBO'] = df['1B'] + df['BB'] + df['HBP']
     
     # Date
-    df['date'] = df['proj_date'].str.replace("-", "")
+    df['date'] = df['gamedate'].str.replace("-", "")
     df['date'] = df['date'].astype('int')
     
     # Keep relevant variables
@@ -796,7 +738,7 @@ def clean_steamer_hitters(df):
     df = df[keep_list]
     
     # Clean up
-    df.columns = df.columns.str.lower()
+    df.rename(columns={col: col.lower() for col in rate_list + ['SB', 'SBA', 'SBO']}, inplace=True)
     df.rename(columns={'1b_rate': 'b1_rate', '2b_rate': 'b2_rate', '3b_rate': 'b3_rate', 'k_rate':'so_rate'}, inplace=True)
     df.dropna(inplace=True)
     
@@ -806,10 +748,7 @@ def clean_steamer_hitters(df):
     
     return df 
 
-# %% [markdown]
-# ##### 2. Pitchers
-
-# %%
+##### 2. Pitchers
 def clean_steamer_pitchers(df):
     # Hits per 9 innings
     df['H9'] = df['H'] / df['IP'] * 9
@@ -821,11 +760,17 @@ def clean_steamer_pitchers(df):
     df['IP_start'].replace([np.inf, -np.inf], 3, inplace=True)
 
     # Date
-    df['date'] = df['proj_date'].str.replace("-", "")
+    df['date'] = df['gamedate'].str.replace("-", "")
     df['date'] = df['date'].astype('int')
+
+    df.rename(columns={'HR/9': 'HR9', 
+                       'K/9': 'K9', 
+                       'BB/9': 'BB9'}, inplace=True)
+
     
     # Keep relevant variables
-    keep_list = ['date', 'firstname', 'lastname', 'mlbamid', 'steamerid'] + pitcher_stats_fg + ['reliability','IP_start','IP','relief_IP']
+    keep_list = ['date', 'firstname', 'lastname', 'mlbamid', 'steamerid'] + pitcher_stats_fg + ['IP_start','IP','relief_IP']
+    
     df = df[keep_list]
     
     # Drop duplicates
@@ -835,5 +780,5 @@ def clean_steamer_pitchers(df):
     return df
 
 
-# %%
+
 __all__ = [name for name in globals() if not name.startswith("_")]

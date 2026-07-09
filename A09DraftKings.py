@@ -155,10 +155,8 @@ def results(contestKey, sleep_time=5):
     search_term = f'contest-standings-{contestKey}'
     print(search_term)
     relevant_files = [file for file in files if file.startswith(search_term)]
-    # print(files)
+    
     sorted_files = sorted(relevant_files, key=lambda x: os.path.getmtime(os.path.join(download_path, x)), reverse=True)
-
-    print(sorted_files)
         
     # Look at relevant files
     if sorted_files:
@@ -167,8 +165,6 @@ def results(contestKey, sleep_time=5):
 
         # Specify the path to the most recent file
         file_path = os.path.join(download_path, most_recent_file)
-
-        print(file_path)
         
         # Specify the path to the destination folder where you want to save the file
         destination_folder = os.path.join(baseball_path, "A09. DraftKings", "4. Results")
@@ -328,6 +324,9 @@ def create_subset(contest_df, contests_per_draftGroupId=10, entry_fee_max=100, a
     four_seamer_df = subset_df[subset_df['Name'].str.contains("eamer", case=False)]
     knuckleball_df = subset_df[subset_df['Name'].str.contains("nuckleball", case=False)]
     
+    # Append on additional contests
+    subset_df = pd.concat([subset_df, four_seamer_df, knuckleball_df], axis=0)
+
     # Convert Cash Prize to numeric
     subset_df['Cash Prize'] = subset_df['Cash Prize'].str.replace("$", "").str.replace(",", "").astype('float')
     # Only keep contests from today and those with reasonable entry fees
@@ -337,9 +336,6 @@ def create_subset(contest_df, contests_per_draftGroupId=10, entry_fee_max=100, a
     
     # Take the top n highest cash prizes based on draftGroupId
     subset_df = subset_df.sort_values(['draftGroupId', 'Cash Prize'], ascending=[False, False]).groupby('draftGroupId').head(contests_per_draftGroupId).reset_index(drop=True)
-
-    # Append on additional contests
-    subset_df = pd.concat([subset_df, four_seamer_df, knuckleball_df], axis=0)
 
     # Remove one game matchups
     subset_df = subset_df[~subset_df['Name'].str.contains("vs")]

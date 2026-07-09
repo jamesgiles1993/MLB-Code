@@ -1,25 +1,28 @@
-#!/usr/bin/env python
-# coding: utf-8
+# U03. Classes
+# This imports classes used to construct objects used in simulating games
+# Type: Utility
+# Run Frequency: Frequent
+# Created: 11/1/2023
+# Updated: 8/20/2025
 
-# # U03. Classes
-# - This imports classes used to construct objects used in simulating games
-# - Type: Utility
-# - Run Frequency: Frequent
-# - Created: 11/1/2023
-# - Updated: 8/20/2025
+### Imports
+from U01Imports_Sim import *
 
-# %%
-from U01Imports import *
-from U02Functions import *
+from pulp import GLPK_CMD  
+from pydfs_lineup_optimizer.solvers import PuLPSolver
+
+
+### Venues
+venue_nums = ['1', '2', '3', '4', '5', '7', '10', '12', '13', '14', '15', '16', '17', '19', '22', '31', '32', 
+              '680', '2392', '2394', '2395', '2535', '2536', '2602', '2680', '2681', '2701', '2735', '2756', 
+              '2889', '3289', '3309', '3312', '3313', '4169', '4705', '5010', '5325', '5365', '5381', '5445']
+
+venue_inputs = [f"venue_{num}" for num in venue_nums]
+
+
 
 # ### Player Attributes
-
-# Read in any matchup file to identify columns with player attributes
-
-# In[1]:
-
-
-# import pandas as pd
+# # Read in any matchup file to identify columns with player attributes
 # test_path = r"C:\Users\James\Documents\MLB\Data\B01. Matchups\Matchups 20240609\COL@STL 745167 1415.xlsx"
 
 # batter_df = pd.read_excel(test_path, sheet_name = "AwayBatters")
@@ -30,23 +33,14 @@ from U02Functions import *
 
 # del batter_df, pitcher_df
 
-# %% Venues
-venue_nums = ['1', '2', '3', '4', '5', '7', '10', '12', '13', '14', '15', '16', '17', '19', '22', '31', '32', 
-              '680', '2392', '2394', '2395', '2535', '2536', '2602', '2680', '2681', '2701', '2735', '2756', 
-              '2889', '3289', '3309', '3312', '3313', '4169', '4705', '5010', '5325', '5365', '5381', '5445']
+# Attribute Columns
+batter_columns = ['id','fullName','firstName','lastName','position','batSide','pitchHand','date','teamId','status','order','away_starter','home_starter','Leverage','venue_id','batting_order','date_time','b1_b_l','b2_b_l','b3_b_l','bb_b_l','fo_b_l','go_b_l','hbp_b_l','hr_b_l','lo_b_l','po_b_l','so_b_l','iso_b_l','slg_b_l','obp_b_l','woba_b_l','estimated_woba_using_speedangle_b_l','to_left_b_l','to_middle_b_l','to_right_b_l','hard_hit_b_l','barrel_b_l','b1_b_long_l','b2_b_long_l','b3_b_long_l','bb_b_long_l','fo_b_long_l','go_b_long_l','hbp_b_long_l','hr_b_long_l','lo_b_long_l','po_b_long_l','so_b_long_l','iso_b_long_l','slg_b_long_l','obp_b_long_l','woba_b_long_l','estimated_woba_using_speedangle_b_long_l','to_left_b_long_l','to_middle_b_long_l','to_right_b_long_l','hard_hit_b_long_l','barrel_b_long_l','imp_b_l','pa_b_l','b1_b_r','b2_b_r','b3_b_r','bb_b_r','fo_b_r','go_b_r','hbp_b_r','hr_b_r','lo_b_r','po_b_r','so_b_r','iso_b_r','slg_b_r','obp_b_r','woba_b_r','estimated_woba_using_speedangle_b_r','to_left_b_r','to_middle_b_r','to_right_b_r','hard_hit_b_r','barrel_b_r','b1_b_long_r','b2_b_long_r','b3_b_long_r','bb_b_long_r','fo_b_long_r','go_b_long_r','hbp_b_long_r','hr_b_long_r','lo_b_long_r','po_b_long_r','so_b_long_r','iso_b_long_r','slg_b_long_r','obp_b_long_r','woba_b_long_r','estimated_woba_using_speedangle_b_long_r','to_left_b_long_r','to_middle_b_long_r','to_right_b_long_r','hard_hit_b_long_r','barrel_b_long_r','imp_b_r','pa_b_r','firstname','lastname','mlbamid','steamerid','sb','sba','sbo','obp','slg','woba','b1_rate','b2_rate','b3_rate','hr_rate','bb_rate','hbp_rate','so_rate']
 
-venue_inputs = [f"venue_{num}" for num in venue_nums]
+pitcher_columns = ['id','fullName','firstName','lastName','position','batSide','pitchHand','date','teamId','status','order','away_starter','home_starter','Leverage','venue_id','batting_order','date_time','b1_p_l','b2_p_l','b3_p_l','bb_p_l','fo_p_l','go_p_l','hbp_p_l','hr_p_l','lo_p_l','po_p_l','so_p_l','iso_p_l','slg_p_l','obp_p_l','woba_p_l','estimated_woba_using_speedangle_p_l','to_left_p_l','to_middle_p_l','to_right_p_l','hard_hit_p_l','barrel_p_l','b1_p_long_l','b2_p_long_l','b3_p_long_l','bb_p_long_l','fo_p_long_l','go_p_long_l','hbp_p_long_l','hr_p_long_l','lo_p_long_l','po_p_long_l','so_p_long_l','iso_p_long_l','slg_p_long_l','obp_p_long_l','woba_p_long_l','estimated_woba_using_speedangle_p_long_l','to_left_p_long_l','to_middle_p_long_l','to_right_p_long_l','hard_hit_p_long_l','barrel_p_long_l','imp_p_l','pa_p_l','b1_p_r','b2_p_r','b3_p_r','bb_p_r','fo_p_r','go_p_r','hbp_p_r','hr_p_r','lo_p_r','po_p_r','so_p_r','iso_p_r','slg_p_r','obp_p_r','woba_p_r','estimated_woba_using_speedangle_p_r','to_left_p_r','to_middle_p_r','to_right_p_r','hard_hit_p_r','barrel_p_r','b1_p_long_r','b2_p_long_r','b3_p_long_r','bb_p_long_r','fo_p_long_r','go_p_long_r','hbp_p_long_r','hr_p_long_r','lo_p_long_r','po_p_long_r','so_p_long_r','iso_p_long_r','slg_p_long_r','obp_p_long_r','woba_p_long_r','estimated_woba_using_speedangle_p_long_r','to_left_p_long_r','to_middle_p_long_r','to_right_p_long_r','hard_hit_p_long_r','barrel_p_long_r','imp_p_r','pa_p_r','firstname','lastname','mlbamid','steamerid','H9','HR9','K9','BB9','GBrate','FBrate','LDrate','SIERA','IP_start','IP','relief_IP']
 
 
-# %% Attribute Columns
-batter_columns = ['id', 'fullName', 'firstName', 'lastName', 'position', 'batSide', 'pitchHand', 'date', 'teamId', 'status', 'order', 'batting_order', 'Leverage', 'weather', 'wind', 'park', 'temperature', 'windSpeed', 'windDirection', 'y_vect', 'x_vect', 'venue_id', 'away_starter', 'home_starter', 'date_time', 'b1_b_l', 'b2_b_l', 'b3_b_l', 'bb_b_l', 'fo_b_l', 'go_b_l', 'hbp_b_l', 'hr_b_l', 'lo_b_l', 'po_b_l', 'so_b_l', 'estimated_woba_using_speedangle_b_l', 'to_left_b_l', 'to_middle_b_l', 'to_right_b_l', 'hard_hit_b_l', 'barrel_b_l', 'iso_b_l', 'slg_b_l', 'obp_b_l', 'woba_b_l', 'totalDistance_b_l', 'launchSpeed_b_l', 'b1_b_long_l', 'b2_b_long_l', 'b3_b_long_l', 'bb_b_long_l', 'fo_b_long_l', 'go_b_long_l', 'hbp_b_long_l', 'hr_b_long_l', 'lo_b_long_l', 'po_b_long_l', 'so_b_long_l', 'estimated_woba_using_speedangle_b_long_l', 'to_left_b_long_l', 'to_middle_b_long_l', 'to_right_b_long_l', 'hard_hit_b_long_l', 'barrel_b_long_l', 'iso_b_long_l', 'slg_b_long_l', 'obp_b_long_l', 'woba_b_long_l', 'totalDistance_b_long_l', 'launchSpeed_b_long_l', 'imp_b_l', 'pa_b_l', 'pa_b_long_l', 'b1_b_r', 'b2_b_r', 'b3_b_r', 'bb_b_r', 'fo_b_r', 'go_b_r', 'hbp_b_r', 'hr_b_r', 'lo_b_r', 'po_b_r', 'so_b_r', 'estimated_woba_using_speedangle_b_r', 'to_left_b_r', 'to_middle_b_r', 'to_right_b_r', 'hard_hit_b_r', 'barrel_b_r', 'iso_b_r', 'slg_b_r', 'obp_b_r', 'woba_b_r', 'totalDistance_b_r', 'launchSpeed_b_r', 'b1_b_long_r', 'b2_b_long_r', 'b3_b_long_r', 'bb_b_long_r', 'fo_b_long_r', 'go_b_long_r', 'hbp_b_long_r', 'hr_b_long_r', 'lo_b_long_r', 'po_b_long_r', 'so_b_long_r', 'estimated_woba_using_speedangle_b_long_r', 'to_left_b_long_r', 'to_middle_b_long_r', 'to_right_b_long_r', 'hard_hit_b_long_r', 'barrel_b_long_r', 'iso_b_long_r', 'slg_b_long_r', 'obp_b_long_r', 'woba_b_long_r', 'totalDistance_b_long_r', 'launchSpeed_b_long_r', 'imp_b_r', 'pa_b_r', 'pa_b_long_r', 'date_steamer', 'steamerid', 'sb', 'sba', 'sbo', 'obp', 'slg', 'woba', 'b1_rate', 'b2_rate', 'b3_rate', 'hr_rate', 'bb_rate', 'hbp_rate', 'so_rate']
-batter_columns = ['id', 'fullName', 'firstName', 'lastName', 'position', 'batSide', 'pitchHand', 'date', 'teamId', 'status', 'order', 'Leverage', 'venue_id', 'batting_order', 'date_time', 'b1_b_l', 'b2_b_l', 'b3_b_l', 'bb_b_l', 'fo_b_l', 'go_b_l', 'hbp_b_l', 'hr_b_l', 'lo_b_l', 'po_b_l', 'so_b_l', 'iso_b_l', 'slg_b_l', 'obp_b_l', 'woba_b_l', 'estimated_woba_using_speedangle_b_l', 'to_left_b_l', 'to_middle_b_l', 'to_right_b_l', 'hard_hit_b_l', 'barrel_b_l', 'b1_b_long_l', 'b2_b_long_l', 'b3_b_long_l', 'bb_b_long_l', 'fo_b_long_l', 'go_b_long_l', 'hbp_b_long_l', 'hr_b_long_l', 'lo_b_long_l', 'po_b_long_l', 'so_b_long_l', 'iso_b_long_l', 'slg_b_long_l', 'obp_b_long_l', 'woba_b_long_l', 'estimated_woba_using_speedangle_b_long_l', 'to_left_b_long_l', 'to_middle_b_long_l', 'to_right_b_long_l', 'hard_hit_b_long_l', 'barrel_b_long_l', 'imp_b_l', 'pa_b_l', 'b1_b_r', 'b2_b_r', 'b3_b_r', 'bb_b_r', 'fo_b_r', 'go_b_r', 'hbp_b_r', 'hr_b_r', 'lo_b_r', 'po_b_r', 'so_b_r', 'iso_b_r', 'slg_b_r', 'obp_b_r', 'woba_b_r', 'estimated_woba_using_speedangle_b_r', 'to_left_b_r', 'to_middle_b_r', 'to_right_b_r', 'hard_hit_b_r', 'barrel_b_r', 'b1_b_long_r', 'b2_b_long_r', 'b3_b_long_r', 'bb_b_long_r', 'fo_b_long_r', 'go_b_long_r', 'hbp_b_long_r', 'hr_b_long_r', 'lo_b_long_r', 'po_b_long_r', 'so_b_long_r', 'iso_b_long_r', 'slg_b_long_r', 'obp_b_long_r', 'woba_b_long_r', 'estimated_woba_using_speedangle_b_long_r', 'to_left_b_long_r', 'to_middle_b_long_r', 'to_right_b_long_r', 'hard_hit_b_long_r', 'barrel_b_long_r', 'imp_b_r', 'pa_b_r', 'firstname', 'lastname', 'mlbamid', 'steamerid', 'sb', 'sba', 'sbo', 'obp', 'slg', 'woba', 'b1_rate', 'b2_rate', 'b3_rate', 'hr_rate', 'bb_rate', 'hbp_rate', 'so_rate']
-
-pitcher_columns = ['id', 'fullName', 'firstName', 'lastName', 'position', 'batSide', 'pitchHand', 'date', 'teamId', 'status', 'order', 'batting_order', 'Leverage', 'weather', 'wind', 'park', 'temperature', 'windSpeed', 'windDirection', 'y_vect', 'x_vect', 'venue_id', 'away_starter', 'home_starter', 'date_time', 'b1_p_l', 'b2_p_l', 'b3_p_l', 'bb_p_l', 'fo_p_l', 'go_p_l', 'hbp_p_l', 'hr_p_l', 'lo_p_l', 'po_p_l', 'so_p_l', 'estimated_woba_using_speedangle_p_l', 'to_left_p_l', 'to_middle_p_l', 'to_right_p_l', 'hard_hit_p_l', 'barrel_p_l', 'iso_p_l', 'slg_p_l', 'obp_p_l', 'woba_p_l', 'maxSpeed_p_l', 'maxSpin_p_l', 'b1_p_long_l', 'b2_p_long_l', 'b3_p_long_l', 'bb_p_long_l', 'fo_p_long_l', 'go_p_long_l', 'hbp_p_long_l', 'hr_p_long_l', 'lo_p_long_l', 'po_p_long_l', 'so_p_long_l', 'estimated_woba_using_speedangle_p_long_l', 'to_left_p_long_l', 'to_middle_p_long_l', 'to_right_p_long_l', 'hard_hit_p_long_l', 'barrel_p_long_l', 'iso_p_long_l', 'slg_p_long_l', 'obp_p_long_l', 'woba_p_long_l', 'maxSpeed_p_long_l', 'maxSpin_p_long_l', 'imp_p_l', 'pa_p_l', 'pa_p_long_l', 'b1_p_r', 'b2_p_r', 'b3_p_r', 'bb_p_r', 'fo_p_r', 'go_p_r', 'hbp_p_r', 'hr_p_r', 'lo_p_r', 'po_p_r', 'so_p_r', 'estimated_woba_using_speedangle_p_r', 'to_left_p_r', 'to_middle_p_r', 'to_right_p_r', 'hard_hit_p_r', 'barrel_p_r', 'iso_p_r', 'slg_p_r', 'obp_p_r', 'woba_p_r', 'maxSpeed_p_r', 'maxSpin_p_r', 'b1_p_long_r', 'b2_p_long_r', 'b3_p_long_r', 'bb_p_long_r', 'fo_p_long_r', 'go_p_long_r', 'hbp_p_long_r', 'hr_p_long_r', 'lo_p_long_r', 'po_p_long_r', 'so_p_long_r', 'estimated_woba_using_speedangle_p_long_r', 'to_left_p_long_r', 'to_middle_p_long_r', 'to_right_p_long_r', 'hard_hit_p_long_r', 'barrel_p_long_r', 'iso_p_long_r', 'slg_p_long_r', 'obp_p_long_r', 'woba_p_long_r', 'maxSpeed_p_long_r', 'maxSpin_p_long_r', 'imp_p_r', 'pa_p_r', 'pa_p_long_r', 'date_steamer', 'steamerid', 'H9', 'HR9', 'K9', 'BB9', 'GBrate', 'FBrate', 'LDrate', 'SIERA', 'reliability', 'IP_start', 'IP', 'relief_IP']
-pitcher_columns = ['id', 'fullName', 'firstName', 'lastName', 'position', 'batSide', 'pitchHand', 'date', 'teamId', 'status', 'order', 'Leverage', 'venue_id', 'batting_order', 'date_time', 'b1_p_l', 'b2_p_l', 'b3_p_l', 'bb_p_l', 'fo_p_l', 'go_p_l', 'hbp_p_l', 'hr_p_l', 'lo_p_l', 'po_p_l', 'so_p_l', 'iso_p_l', 'slg_p_l', 'obp_p_l', 'woba_p_l', 'estimated_woba_using_speedangle_p_l', 'to_left_p_l', 'to_middle_p_l', 'to_right_p_l', 'hard_hit_p_l', 'barrel_p_l', 'b1_p_long_l', 'b2_p_long_l', 'b3_p_long_l', 'bb_p_long_l', 'fo_p_long_l', 'go_p_long_l', 'hbp_p_long_l', 'hr_p_long_l', 'lo_p_long_l', 'po_p_long_l', 'so_p_long_l', 'iso_p_long_l', 'slg_p_long_l', 'obp_p_long_l', 'woba_p_long_l', 'estimated_woba_using_speedangle_p_long_l', 'to_left_p_long_l', 'to_middle_p_long_l', 'to_right_p_long_l', 'hard_hit_p_long_l', 'barrel_p_long_l', 'imp_p_l', 'pa_p_l', 'b1_p_r', 'b2_p_r', 'b3_p_r', 'bb_p_r', 'fo_p_r', 'go_p_r', 'hbp_p_r', 'hr_p_r', 'lo_p_r', 'po_p_r', 'so_p_r', 'iso_p_r', 'slg_p_r', 'obp_p_r', 'woba_p_r', 'estimated_woba_using_speedangle_p_r', 'to_left_p_r', 'to_middle_p_r', 'to_right_p_r', 'hard_hit_p_r', 'barrel_p_r', 'b1_p_long_r', 'b2_p_long_r', 'b3_p_long_r', 'bb_p_long_r', 'fo_p_long_r', 'go_p_long_r', 'hbp_p_long_r', 'hr_p_long_r', 'lo_p_long_r', 'po_p_long_r', 'so_p_long_r', 'iso_p_long_r', 'slg_p_long_r', 'obp_p_long_r', 'woba_p_long_r', 'estimated_woba_using_speedangle_p_long_r', 'to_left_p_long_r', 'to_middle_p_long_r', 'to_right_p_long_r', 'hard_hit_p_long_r', 'barrel_p_long_r', 'imp_p_r', 'pa_p_r', 'firstname', 'lastname', 'mlbamid', 'steamerid', 'H9', 'HR9', 'K9', 'BB9', 'GBrate', 'FBrate', 'LDrate', 'SIERA', 'reliability', 'IP_start', 'IP', 'relief_IP']
-
-
-# %% Batters
+### Player Objects
+# Batters
 class Batter:
     def __init__(self, **kwargs):
         for column in batter_columns + ['confirmed']:
@@ -85,8 +79,7 @@ class Batter:
             if attr not in keep_attributes or attr == '__class__':
                 self.__dict__.pop(attr, None)
 
-
-# %% Pitchers
+#  Pitchers
 class Pitcher:
     def __init__(self, **kwargs):
         for column in pitcher_columns + ['confirmed']:
@@ -158,7 +151,8 @@ class Pitcher:
                 self.__dict__.pop(attr, None)
 
 
-# %% Scoreboard (Game)
+
+### Scoreboard Object (Game)
 class Scoreboard:
     def __init__(self, away_batters, home_batters, away_pitchers, home_pitchers, innings):
         # Player objects
@@ -232,7 +226,8 @@ class Scoreboard:
                 self.__dict__.pop(attr, None)
 
 
-# %% Parks
+
+### Park Object
 class Park:
     def __init__(self, **kwargs):
         for key, value in kwargs.items():
@@ -242,5 +237,11 @@ class Park:
         return f"Park({', '.join(f'{k}={v}' for k, v in vars(self).items())})"
 
 
-# %%
+
+### GLPK Solver
+class GLPKPuLPSolver(PuLPSolver):
+    LP_SOLVER = GLPK_CMD(path=r"C:\Users\James\anaconda3\envs\torch_nightly\Library\bin\glpsol.exe",  msg=False)
+
+
+
 __all__ = [name for name in globals() if not name.startswith("_")]

@@ -2,7 +2,7 @@
 from U01Imports import *
 from U02Functions import *
 from U04Datasets import *
-from U05Models import *
+# from U05Models import *
 
 
 # %%
@@ -77,46 +77,88 @@ def dff_slates(date):
 
 # %%
 # Scrapes RotoWire slates
-def roto_slates(date):
-    date_dash = date[0:4] + "-" + date[4:6] + "-" + date[6:]
-    url = 'https://www.rotowire.com/daily/mlb/saved-lineups.php?date={}'.format(date_dash)
+def roto_slates(date, site="DraftKings"):
+    """
+    Pull MLB DFS slates for a given date from RotoWire saved-lineups page.
+
+    Parameters
+    ----------
+    date : str
+        Date in YYYYMMDD format, e.g., "20260326"
+    site : str
+        DFS site, default "DraftKings"
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: date, slateID, name, time, games
+    """
+    url = "https://www.rotowire.com/daily/mlb/saved-lineups.php"
+    headers = {"User-Agent": "Mozilla/5.0"}
     
-    def fetch_page_source(url):
-        response = requests.get(url)
-        if response.status_code == 200:
-            return response.text
+    r = requests.get(url, headers=headers)
+    if r.status_code != 200:
+        raise Exception(f"Request failed: {r.status_code}")
+    
+    soup = BeautifulSoup(r.text, "html.parser")
+    
+    rows = []
+    
+    for slate in soup.select("a.dfs-slate"):
+        # extract slateID from data-excludedparams
+        params_json = slate.get("data-excludedparams")
+        if not params_json:
+            continue
+        params = json.loads(params_json)
+        if params.get("site") != site:
+            continue
+        
+        slate_id = params.get("slateID")
+        
+        # extract name and games
+        name_spans = slate.select(".dfs-slate-name span")
+        if len(name_spans) == 2:
+            name = name_spans[0].text.strip()
+            try:
+                games = int(name_spans[1].text.strip().split()[0])
+            except:
+                games = 0
+        elif len(name_spans) == 1:
+            name = name_spans[0].text.strip()
+            games = 1
         else:
-            raise Exception(f"Failed to fetch page source. Status code: {response.status_code}")
-
-    def extract_data_from_page(html_content):
-        soup = BeautifulSoup(html_content, 'html.parser')
-        slates_data = []
-        for slate in soup.find_all('a', class_='dfs-slate'):
-            date_fragment, time = [text.strip() for text in slate.find('div', class_='dfs-slate-desc').stripped_strings]
-            time = time.lower()
-
-            slate_name_parts = [text.strip() for text in slate.find('div', class_='dfs-slate-name').stripped_strings]
-            slate_name = slate_name_parts[0]
-            num_games = slate_name_parts[-1].split()[0]  # Extract the number of games from the last part
-
-            slate_id = slate['href'].split('slateID=')[1]
-
-            slates_data.append({'date': date, 'slateID': slate_id, 'name': slate_name, 'time': time, 'games': num_games})
-
-        return slates_data
-
-    page_source = fetch_page_source(url)
-    data = extract_data_from_page(page_source)
+            name = "Unknown"
+            games = 0
+        
+        # extract time
+        desc_spans = slate.select(".dfs-slate-desc span")
+        time = desc_spans[1].text.strip() if len(desc_spans) > 1 else ""
+        
+        rows.append({
+            "date": date,
+            "slateID": slate_id,
+            "name": name,
+            "time": time,
+            "games": games
+        })
     
-    # Create a pandas DataFrame
-    df = pd.DataFrame(data)
+    df = pd.DataFrame(rows)
     
-    # Games will be a string of one of the team abbreviations. Fix it.
-    df['games'] = pd.to_numeric(df['games'], errors='coerce')
-    df['games'].fillna(1, inplace=True)
-    df['games'] = df['games'].astype('int') 
+    # Identify empty names
+    empty_mask = df["name"].str.strip() == ""
+    
+    # Check if "All" already exists (non-empty)
+    has_all = (df["name"].str.strip() == "All").any()
+    
+    if empty_mask.any():
+        if not has_all and empty_mask.sum() == 1:
+            # Safe to replace the single empty with "All"
+            df.loc[empty_mask, "name"] = "All"
+        else:
+            # Flag problematic rows
+            df.loc[empty_mask, "name_flag"] = "MISSING_NAME"
 
-    
+
     return df
 
 

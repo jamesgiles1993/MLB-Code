@@ -16,20 +16,15 @@ def calculate_vectors(row, azimuth_column, wind_column, speed_column):
 
 # %%
 # Create Daily WFX Data
-def create_wfx_df(similar_games, date):
+def create_wfx_df(date):
     ### Variables
     # Define variable lists
-    mlb_weather_variables = ['x_vect', 'y_vect', 'temperature'] # drop weather
+    mlb_weather_variables = ['x_vect', 'y_vect', 'temperature']  # Deprecated
     meteo_duplicates_variables = ['meteo_x_vect', 'meteo_y_vect', 'temperature_2m']
     meteo_weather_variables = ['relative_humidity_2m', 'dew_point_2m', 'surface_pressure']
-    mlb_park_variables = ['fieldInfo.leftLine', 'fieldInfo.center', 'fieldInfo.rightLine', 'fieldInfo.leftCenter', 'fieldInfo.rightCenter', 'location.elevation'] # drop roof type
+    mlb_park_variables = ['fieldInfo.leftLine', 'fieldInfo.center', 'fieldInfo.rightLine', 'fieldInfo.leftCenter', 'fieldInfo.rightCenter', 'location.elevation']  # Deprecated
+    venue_dummy_list  # Defined in U01. Imports 
 
-    # Define variable dummy list
-    venue_dummy_list = ['venue_1', 'venue_2', 'venue_3', 'venue_4', 'venue_5', 'venue_7', 'venue_10', 'venue_12', 'venue_13', 
-                    'venue_14', 'venue_15', 'venue_17', 'venue_19', 'venue_22', 'venue_31', 'venue_32', 'venue_680', 
-                    'venue_2392', 'venue_2394', 'venue_2395', 'venue_2602', 'venue_2680', 'venue_2681', 'venue_2889', 
-                    'venue_3289', 'venue_3309', 'venue_3312', 'venue_3313', 'venue_4169', 'venue_4705', 'venue_5325']
-    
     ### Data
     # Open Meteo
     # Read in weather data
@@ -47,28 +42,25 @@ def create_wfx_df(similar_games, date):
     meteo_df.loc[mask, 'relative_humidity_2m'] = 60
     meteo_df.loc[mask, 'dew_point_2m'] = 57
 
-    # Event Averages
-    event_averages = pd.read_csv(os.path.join(baseball_path, "Event Averages.csv"))
-    event_averages = event_averages.add_suffix("_pred_batted")
-    event_variables = list(event_averages.columns)
-
     #  Park Latest
     park_latest_df = pd.read_csv(os.path.join(baseball_path, "Park Latest.csv"))
 
-    # Park and Weather Factors
-    park_and_weather_df = pd.read_csv(os.path.join(baseball_path, "Park and Weather Factors.csv"))
+    # Define pfx variables
+    eps = 1e-4
 
-    # Define pfx variables   
-    pfx_variables = [col for col in park_latest_df if col.endswith("pfx")]
+    for event in events_list:
+        park_latest_df[f'{event}_log_pfx'] = np.log(park_latest_df[f'{event}_pfx'] + eps)
+
+    pfx_variables = [col for col in park_latest_df if col.endswith("log_pfx")]
 
     # Define model inputs
-    wfx_inputs = event_variables + pfx_variables + meteo_duplicates_variables + meteo_weather_variables + venue_dummy_list + ['b_L']
+    wfx_inputs = pfx_variables + meteo_duplicates_variables + meteo_weather_variables + venue_dummy_list + ['b_L']
 
-    def create_wfx_side_df(meteo_df, park_latest_df, event_averages, park_and_weather_df, wfx_inputs, similar_games, batSide):
+    def create_wfx_side_df(meteo_df, park_latest_df, wfx_inputs, batSide):
         # Merge weather data with latest park data, specific to batting side
+        park_latest_df['venue_id'] = park_latest_df['venue_id_adj'].str.replace(r'[A-Za-z]', '', regex=True)
+        meteo_df['venue_id'] = meteo_df['venue_id'].astype(str)
         wfx_sample = meteo_df.merge(park_latest_df[park_latest_df['batSide'] == batSide], on=['venue_id'], how='left')
-        # Merge in event averages
-        wfx_sample = wfx_sample.merge(event_averages, how='cross')
 
         # Create venue dummies
         for venue_dummy in venue_dummy_list:
@@ -78,88 +70,48 @@ def create_wfx_df(similar_games, date):
         wfx_sample['b_L'] = 1
 
         # Scale weather inputs
-        X2 = wfx_sample[wfx_inputs].values
-        X2_scaled = scale_wfx.transform(X2)
+        scale_cols = ['meteo_x_vect','meteo_y_vect','temperature_2m','relative_humidity_2m','dew_point_2m','surface_pressure']  # From M01. Weather Factors
+        wfx_sample[scale_cols] = scale_wfx.transform(wfx_sample[scale_cols])
 
         # Predict WFX
-        predictions2 = predict_wfx.predict(X2_scaled)
+        log_multiplier_preds = predict_wfx.predict(wfx_sample[wfx_inputs].values)
 
-        # Create DataFrame for predictions
-        prediction_df2 = pd.DataFrame(predictions2, columns=events_list)
-        prediction_df2 = prediction_df2.add_suffix('_pred_weather')
+        # Calculate WFX
+        for i, event in enumerate(events_list):
+            # Uncentered log multiplier
+            wfx_sample[f'{event}_log_multiplier_pred'] = log_multiplier_preds[:, i]
+            
+            # Uncentered WFX
+            wfx_sample[f'{event}_wfx_unadj'] = np.exp(log_multiplier_preds[:, i])
+            
+            # Centered log multiplier
+            wfx_sample[f'{event}_log_multiplier_pred_centered'] = (wfx_sample[f'{event}_log_multiplier_pred'] - wfx_sample.groupby('batSide')[f'{event}_log_multiplier_pred'].transform('mean'))
 
-        # Concatenate with original data
-        wfx_sample = pd.concat([wfx_sample, prediction_df2.reset_index()], axis=1)
-
-        # Calculate unadjusted WFX
-        for event in events_list:
-            wfx_sample[f'{event}_wfx_unadj'] = wfx_sample[f'{event}_pred_weather'] / wfx_sample[f'{event}_pred_batted']
-
-        # Calibrate
-        for event in events_list:
-            pred_weather_col = f'{event}_pred_weather'
-            ref_pred_weather_col = f'{event}_pred_weather_{str.lower(batSide)}'
-            ref_pred_batted_col = f'{event}_pred_batted_{str.lower(batSide)}'
-            ref_actual_col = f'{event}_{str.lower(batSide)}'
-
-            pred_batted_output = []
-            actual_output = []
-
-            # Pull reference columns as arrays for speed
-            pwf_venue = park_and_weather_df['venue_id'].values
-            pwf_pred_weather = park_and_weather_df[ref_pred_weather_col].values
-            pwf_pred_batted = park_and_weather_df[ref_pred_batted_col].values
-            pwf_actual = park_and_weather_df[ref_actual_col].values
-
-            for i, row in wfx_sample.iterrows():
-                venue = row['venue_id']
-                target_pred_weather = row[pred_weather_col]
-
-                mask = pwf_venue == venue
-                pred_weather_vals = pwf_pred_weather[mask]
-                pred_batted_vals = pwf_pred_batted[mask]
-                actual_vals = pwf_actual[mask]
-
-                if len(pred_weather_vals) == 0 or np.isnan(target_pred_weather):
-                    pred_batted_output.append(np.nan)
-                    actual_output.append(np.nan)
-                    continue
-
-                nearest_idx = np.argsort(np.abs(pred_weather_vals - target_pred_weather))[:similar_games]
-                pred_batted_output.append(np.nanmean(pred_batted_vals[nearest_idx]))
-                actual_output.append(np.nanmean(actual_vals[nearest_idx]))
-
-            # Save results to wfx_sample
-            wfx_sample[f'{event}_pred_batted'] = pred_batted_output
-            wfx_sample[event] = actual_output
-
-            # Calculate adjusted wfx
-            wfx_sample[f'{event}_wfx_adj'] = wfx_sample[event] / wfx_sample[f'{event}_pred_batted'] 
-
+            # Centered WFX
+            wfx_sample[f'{event}_wfx_adj'] = np.exp(wfx_sample[f'{event}_log_multiplier_pred_centered'])
 
         return wfx_sample
     
     # Create side-specific WFX dataframes
-    l_wfx_df = create_wfx_side_df(meteo_df, park_latest_df[park_latest_df['batSide'] == 'L'], event_averages, park_and_weather_df, wfx_inputs, similar_games, "L")
-    r_wfx_df = create_wfx_side_df(meteo_df, park_latest_df[park_latest_df['batSide'] == 'R'], event_averages, park_and_weather_df, wfx_inputs, similar_games, "R")
+    l_wfx_df = create_wfx_side_df(meteo_df, park_latest_df[park_latest_df['batSide'] == 'L'], wfx_inputs, "L")
+    r_wfx_df = create_wfx_side_df(meteo_df, park_latest_df[park_latest_df['batSide'] == 'R'], wfx_inputs, "R")
 
     # Merge together
     wfx_df = pd.merge(l_wfx_df, r_wfx_df[["venue_id", "game_num"] + [col for col in r_wfx_df if "wfx" in col]], on=['venue_id', 'game_num'], how='left', suffixes=("_l", "_r"))
+    
     # Rename (game_id is generated in historic wfx code)
     wfx_df.rename(columns={'game_id': 'gamePk'}, inplace=True)
+
     # Keep relevant columns
     keep_columns = ['gamePk', 'game_datetime', 'game_date', 'date', 'year', 'game_type', 'status', 'away_team', 'home_team', 'doubleheader', 'game_num', 'venue_id', 'venue_name', 
                 'location.defaultCoordinates.latitude', 'location.defaultCoordinates.longitude', 'fieldInfo.leftLine', 'fieldInfo.center', 'fieldInfo.rightLine', 'fieldInfo.leftCenter', 'fieldInfo.rightCenter', 
                 'location.elevation', 'location.azimuthAngle', 'fieldInfo.roofType', 'active', 
                 'temperature_2m', 'relative_humidity_2m', 'dew_point_2m', 'surface_pressure', 'wind_speed_10m', 'wind_direction_10m', 'weather_code',
                 'meteo_x_vect', 'meteo_y_vect', 'weather', 'wind', 'missing_weather']
-    
+
 
     return wfx_df[keep_columns + [col for col in wfx_df if "wfx" in col]]
 
 
 # %%
 __all__ = [name for name in globals() if not name.startswith("_")]
-
-
-

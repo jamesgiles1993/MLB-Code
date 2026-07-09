@@ -2,13 +2,13 @@
 from U01Imports import *
 from U02Functions import *
 from U04Datasets import *
-from U05Models import *
+# from U05Models import *
 
 # %%
 # Columns from game_df
 game_columns = ['game_id', 'game_datetime', 'game_date', 'date', 'year', 'game_type', 'status', 'away_team', 'home_team', 'doubleheader', 'game_num', 'venue_id', 'venue_name']
 # Columns Venue Map
-venue_columns = ['location.defaultCoordinates.latitude', 'location.defaultCoordinates.longitude', 
+venue_columns = ['location.defaultCoordinates.latitude', 'location.defaultCoordinates.longitude',
                  'fieldInfo.leftLine', 'fieldInfo.center', 'fieldInfo.rightLine', 'fieldInfo.leftCenter',
                  'fieldInfo.rightCenter', 'location.elevation', 'location.azimuthAngle', 'fieldInfo.roofType', 'active']
 # Columns from Open Mateo 
@@ -16,249 +16,287 @@ weather_columns = ['temperature_2m', 'relative_humidity_2m', 'dew_point_2m', 'su
 # Forecast-only columns from Open Meteo
 forecast_only_columns = ['precipitation_probability']
 
-# %%
-# Fetch historical weather data for a given game datetime and location
-def fetch_historical_weather_data(openmeteo, latitude, longitude, game_datetime):
-    game_date = game_datetime.strftime("%Y-%m-%d")
-    next_day = (game_datetime + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
 
-    url = "https://archive-api.open-meteo.com/v1/archive"
-    params = {
-        "latitude": latitude,
-        "longitude": longitude,
-        "start_date": game_date,
-        "end_date": next_day,  # include next day to cover all 24 hours
-        "hourly": [
-            "temperature_2m", "relative_humidity_2m", "dew_point_2m", 
-            "weather_code", "surface_pressure", "wind_speed_10m", "wind_direction_10m"
-        ],
-        "temperature_unit": "fahrenheit",
-        "wind_speed_unit": "mph",
-        "precipitation_unit": "inch",
-        "timezone": "UTC"  # important!
-    }
+tzf = TimezoneFinder()
 
-    responses = openmeteo.weather_api(url, params=params)
-    response = responses[0]
 
-    hourly = response.Hourly()
-    hourly_data = {
-        "datetime": pd.date_range(
-            start=pd.to_datetime(hourly.Time(), unit="s", utc=True),
-            end=pd.to_datetime(hourly.TimeEnd(), unit="s", utc=True),
-            freq=pd.Timedelta(seconds=hourly.Interval()),
-            inclusive="left"
-        ),
-        "temperature_2m": hourly.Variables(0).ValuesAsNumpy(),
-        "relative_humidity_2m": hourly.Variables(1).ValuesAsNumpy(),
-        "dew_point_2m": hourly.Variables(2).ValuesAsNumpy(),
-        "weather_code": hourly.Variables(3).ValuesAsNumpy(),
-        "surface_pressure": hourly.Variables(4).ValuesAsNumpy(),
-        "wind_speed_10m": hourly.Variables(5).ValuesAsNumpy(),
-        "wind_direction_10m": hourly.Variables(6).ValuesAsNumpy()
-    }
-
-    
-    return pd.DataFrame(hourly_data)
-
-# %%
-# Create historic weather dataframe
 def create_historic_weather_df(openmeteo, game_df):
-    """Append weather data to each game in game_df based on game_datetime."""
 
-    # Convert game_datetime to UTC
-    game_df["game_datetime"] = pd.to_datetime(game_df["game_datetime"], utc=True)
-
-    # Lists to store the matched weather data
     weather_columns = [
         "temperature_2m", "relative_humidity_2m", "dew_point_2m",
         "weather_code", "surface_pressure", "wind_speed_10m", "wind_direction_10m"
     ]
-    weather_data_lists = {col: [] for col in weather_columns}
 
-    # Loop through each game in the DataFrame
-    for _, row in game_df.iterrows():
-        latitude = row["location.defaultCoordinates.latitude"]
-        longitude = row["location.defaultCoordinates.longitude"]
-        game_datetime = row["game_datetime"]
+    game_df = game_df.copy()
 
-        # Fetch historical weather data for that day
-        weather_data = fetch_historical_weather_data(openmeteo, latitude, longitude, game_datetime)
-        
-        # Find the closest weather timestamp to game_datetime (typically, first top of the hour after game starts)
-        closest_weather_row = weather_data.iloc[
-            (weather_data["datetime"] - game_datetime).abs().argsort()[0]
-        ]
+    # --- Step 1: Determine local date per game ---
+    def get_local_date(row):
+        tz_str = tzf.timezone_at(
+            lat=row["location.defaultCoordinates.latitude"],
+            lng=row["location.defaultCoordinates.longitude"]
+        )
+        local_tz = pytz.timezone(tz_str)
+        return row["game_datetime"].tz_convert(local_tz).date()
 
-        # Append the closest weather data to lists
-        for col in weather_columns:
-            weather_data_lists[col].append(closest_weather_row[col])
+    game_df["local_date"] = game_df.apply(get_local_date, axis=1)
 
-    # Add the weather data as new columns in game_df
-    for col in weather_columns:
-        game_df[col] = weather_data_lists[col]
+    # --- Step 2: Get unique fetch combinations ---
+    unique_keys = game_df[
+        ["location.defaultCoordinates.latitude",
+         "location.defaultCoordinates.longitude",
+         "local_date"]
+    ].drop_duplicates()
 
+    all_weather = []
 
-    return game_df
+    # --- Step 3: Fetch weather once per key ---
+    for _, row in unique_keys.iterrows():
+        lat = row["location.defaultCoordinates.latitude"]
+        lon = row["location.defaultCoordinates.longitude"]
+        local_date = row["local_date"]
 
+        start_date = str(local_date)
+        end_date = str(local_date + pd.Timedelta(days=1))
 
-# %%
-# Fetch today's weather data for a given game datetime and location
-def fetch_weather_data(openmeteo, latitude, longitude, start, end):
-    url = "https://api.open-meteo.com/v1/forecast"
-    params = {
-        "latitude": latitude,
-        "longitude": longitude,
-        "hourly": [
-            "temperature_2m", "relative_humidity_2m", "dew_point_2m", 
-            "precipitation_probability", "surface_pressure", 
-            "wind_speed_10m", "wind_direction_10m", "weather_code"
-        ],
-        "start": start,  # ISO 8601
-        "end": end,      # ISO 8601
-        "wind_speed_unit": "mph",
-        "temperature_unit": "fahrenheit",
-        "precipitation_unit": "inch",
-        "timezone": "UTC",       # ✅ Ensure UTC so hourly timestamps align
-        "past_days": 2           # ✅ Include recent data in case game time is recent past
-    }
+        url = "https://archive-api.open-meteo.com/v1/archive"
+        params = {
+            "latitude": lat,
+            "longitude": lon,
+            "start_date": start_date,
+            "end_date": end_date,
+            "hourly": weather_columns,
+            "temperature_unit": "fahrenheit",
+            "wind_speed_unit": "mph",
+            "precipitation_unit": "inch",
+            "timezone": "UTC"
+        }
 
-    responses = openmeteo.weather_api(url, params=params)
-    response = responses[0]
-    hourly = response.Hourly()
+        responses = openmeteo.weather_api(url, params=params)
+        response = responses[0]
+        hourly = response.Hourly()
 
-    hourly_data = {
-        "datetime": pd.date_range(
-            start=pd.to_datetime(hourly.Time(), unit="s", utc=True),
-            end=pd.to_datetime(hourly.TimeEnd(), unit="s", utc=True),
-            freq=pd.Timedelta(seconds=hourly.Interval()),
-            inclusive="left"
-        ),
-        "temperature_2m": hourly.Variables(0).ValuesAsNumpy(),
-        "relative_humidity_2m": hourly.Variables(1).ValuesAsNumpy(),
-        "dew_point_2m": hourly.Variables(2).ValuesAsNumpy(),
-        "precipitation_probability": hourly.Variables(3).ValuesAsNumpy(),
-        "surface_pressure": hourly.Variables(4).ValuesAsNumpy(),
-        "wind_speed_10m": hourly.Variables(5).ValuesAsNumpy(),
-        "wind_direction_10m": hourly.Variables(6).ValuesAsNumpy(),
-        "weather_code": hourly.Variables(7).ValuesAsNumpy(),
-    }
+        df = pd.DataFrame({
+            "datetime": pd.date_range(
+                start=pd.to_datetime(hourly.Time(), unit="s", utc=True),
+                end=pd.to_datetime(hourly.TimeEnd(), unit="s", utc=True),
+                freq=pd.Timedelta(seconds=hourly.Interval()),
+                inclusive="left"
+            ),
+            "temperature_2m": hourly.Variables(0).ValuesAsNumpy(),
+            "relative_humidity_2m": hourly.Variables(1).ValuesAsNumpy(),
+            "dew_point_2m": hourly.Variables(2).ValuesAsNumpy(),
+            "weather_code": hourly.Variables(3).ValuesAsNumpy(),
+            "surface_pressure": hourly.Variables(4).ValuesAsNumpy(),
+            "wind_speed_10m": hourly.Variables(5).ValuesAsNumpy(),
+            "wind_direction_10m": hourly.Variables(6).ValuesAsNumpy(),
+        })
 
-    df = pd.DataFrame(hourly_data)
+        df["location.defaultCoordinates.latitude"] = lat
+        df["location.defaultCoordinates.longitude"] = lon
+        df["local_date"] = local_date
 
-    # Filter the data to only include the requested window
-    df = df[(df["datetime"] >= pd.to_datetime(start, utc=True)) &
-            (df["datetime"] <= pd.to_datetime(end, utc=True))]
+        all_weather.append(df)
+
+    weather_df = pd.concat(all_weather, ignore_index=True)
+
+    # --- Step 4: Sort for merge_asof ---
+    game_df = game_df.sort_values("game_datetime")
+    weather_df = weather_df.sort_values("datetime")
+
+    # --- Step 5: Merge nearest timestamp ---
+    merged = pd.merge_asof(
+        game_df,
+        weather_df,
+        left_on="game_datetime",
+        right_on="datetime",
+        by=["location.defaultCoordinates.latitude",
+            "location.defaultCoordinates.longitude",
+            "local_date"],
+        direction="nearest"
+    )
+
+    # --- Cleanup ---
+    merged.drop(columns=["datetime", "local_date"], inplace=True)
 
     
-    return df
+    return merged
 
-# %%
-# Create daily weather dataframe
+
 def create_daily_weather_df(openmeteo, game_df):
-    """Append hourly weather data (forecast or recent) to each game."""
+
     weather_columns = [
         "temperature_2m", "relative_humidity_2m", "dew_point_2m",
         "precipitation_probability", "surface_pressure",
         "wind_speed_10m", "wind_direction_10m", "weather_code"
     ]
-    weather_data_lists = {col: [] for col in weather_columns}
 
-    for _, row in game_df.iterrows():
-        latitude = row["location.defaultCoordinates.latitude"]
-        longitude = row["location.defaultCoordinates.longitude"]
-        game_datetime = pd.to_datetime(row["game_datetime"], utc=True)
+    game_df = game_df.copy()
 
-        # Fetch 2 hours around game start to ensure coverage
-        start = (game_datetime - pd.Timedelta(hours=1)).isoformat()
-        end = (game_datetime + pd.Timedelta(hours=1)).isoformat()
+    # --- Step 1: Create fetch windows ---
+    game_df["start"] = game_df["game_datetime"] - pd.Timedelta(hours=1)
+    game_df["end"]   = game_df["game_datetime"] + pd.Timedelta(hours=1)
 
-        try:
-            weather_data = fetch_weather_data(openmeteo, latitude, longitude, start, end)
-            if not weather_data.empty:
-                # Find record closest to game time
-                closest = weather_data.iloc[(weather_data["datetime"] - game_datetime).abs().argsort()[0]]
-                for col in weather_columns:
-                    weather_data_lists[col].append(closest[col])
-            else:
-                # If API returned no data, append NaN
-                for col in weather_columns:
-                    weather_data_lists[col].append(np.nan)
-        except Exception as e:
-            print(f"⚠️ Weather fetch failed for {latitude},{longitude} at {game_datetime}: {e}")
-            for col in weather_columns:
-                weather_data_lists[col].append(np.nan)
+    unique_keys = game_df[
+        ["location.defaultCoordinates.latitude",
+         "location.defaultCoordinates.longitude",
+         "start",
+         "end"]
+    ].drop_duplicates()
 
-    # Add the weather columns
-    for col in weather_columns:
-        game_df[col] = weather_data_lists[col]
+    all_weather = []
 
-    
-    return game_df
+    for _, row in unique_keys.iterrows():
+        lat = row["location.defaultCoordinates.latitude"]
+        lon = row["location.defaultCoordinates.longitude"]
+        start = row["start"].isoformat()
+        end = row["end"].isoformat()
+
+        url = "https://api.open-meteo.com/v1/forecast"
+        params = {
+            "latitude": lat,
+            "longitude": lon,
+            "hourly": weather_columns,
+            "start": start,
+            "end": end,
+            "temperature_unit": "fahrenheit",
+            "wind_speed_unit": "mph",
+            "precipitation_unit": "inch",
+            "timezone": "UTC",
+            "past_days": 2
+        }
+
+        responses = openmeteo.weather_api(url, params=params)
+        response = responses[0]
+        hourly = response.Hourly()
+
+        df = pd.DataFrame({
+            "datetime": pd.date_range(
+                start=pd.to_datetime(hourly.Time(), unit="s", utc=True),
+                end=pd.to_datetime(hourly.TimeEnd(), unit="s", utc=True),
+                freq=pd.Timedelta(seconds=hourly.Interval()),
+                inclusive="left"
+            ),
+            "temperature_2m": hourly.Variables(0).ValuesAsNumpy(),
+            "relative_humidity_2m": hourly.Variables(1).ValuesAsNumpy(),
+            "dew_point_2m": hourly.Variables(2).ValuesAsNumpy(),
+            "precipitation_probability": hourly.Variables(3).ValuesAsNumpy(),
+            "surface_pressure": hourly.Variables(4).ValuesAsNumpy(),
+            "wind_speed_10m": hourly.Variables(5).ValuesAsNumpy(),
+            "wind_direction_10m": hourly.Variables(6).ValuesAsNumpy(),
+            "weather_code": hourly.Variables(7).ValuesAsNumpy(),
+        })
+
+        df["location.defaultCoordinates.latitude"] = lat
+        df["location.defaultCoordinates.longitude"] = lon
+
+        all_weather.append(df)
+
+    weather_df = pd.concat(all_weather, ignore_index=True)
+
+    # --- Merge ---
+    game_df = game_df.sort_values("game_datetime")
+    weather_df = weather_df.sort_values("datetime")
+
+    merged = pd.merge_asof(
+        game_df,
+        weather_df,
+        left_on="game_datetime",
+        right_on="datetime",
+        by=["location.defaultCoordinates.latitude",
+            "location.defaultCoordinates.longitude"],
+        direction="nearest"
+    )
+
+    merged.drop(columns=["datetime", "start", "end"], inplace=True)
+
+    return merged
 
 
 # %%
-# Scrapes Rotogrinders weather forecast
-def rotogrinders_weather(date, team_map):
-    # Send a GET request to the URL and retrieve the response
-    response = requests.get("https://rotogrinders.com/weather/mlb")
+# Scrapes Kevin's weather forecast
+def kevin(date_dash):
+    # PropFinder URL
+    url = f"https://api.propfinder.app/mlb/weather-games?date={date_dash}"
 
-    # Check if the response is successful (status code 200)
-    if response.status_code == 200:
-        # Get the HTML content from the response
-        html_content = response.text
+    # Call API
+    response = requests.get(url)
+    response.raise_for_status()
+    data = response.json()
 
-        soup = BeautifulSoup(html_content, "html.parser")
+    # Handle case where API returns a single dict vs list
+    if isinstance(data, dict):
+        data = [data]
 
-        # Find all <li> elements within the <ul>
-        li_elements = soup.find_all("li", class_="weather-blurb")
+    # Extract fields
+    rows = []
+    for game in data:
+        rows.append({
+            "gameId": game.get("id"),
+            "gameDate": game.get("gameDate"),
+            "ballparkId": game.get("ballpark", {}).get("id"),
+            "homeTeamCode": game.get("homeTeam", {}).get("code"),
+            "awayTeamCode": game.get("visitorTeam", {}).get("code"),
+            "weatherIndicator": game.get("weatherIndicator")
+        })
 
-        # Create an empty list to store the data
-        data = []
+    # Convert to DataFrame
+    df = pd.DataFrame(rows)
 
-        for li_element in li_elements:
-            # Extract the tag colors from the <span> elements
-            tag_elements = li_element.find_all("span", class_=["green", "yellow", "orange", "red"])
-        
-            # Extract the first tag color
-            tag = tag_elements[0].text.strip() if tag_elements else None
-        
-            # Extract the second tag color if it exists
-            tag2 = tag_elements[1].text.strip() if len(tag_elements) > 1 else None
-        
-            # Extract the matchup from the <span> element with class "bold"
-            matchup_span = li_element.find("span", class_="bold")
-            matchup = matchup_span.text.strip() if matchup_span else None
-        
-            # Extract the description if it exists
-            if matchup_span:
-                description_span = matchup_span.find_next_sibling("span")
-                description = description_span.text.strip() if description_span else None
-            else:
-                description = None
-        
-            # Append the data to the list
-            data.append({"Tag": tag, "Tag2": tag2, "Matchup": matchup, "Description": description})
+    # Use standardized team codes
+    df['home'] = df['homeTeamCode'].map(team_dict)
+    df['away'] = df['awayTeamCode'].map(team_dict)
 
+    
+    # Convert to EST    
+    df['gameDate'] = (
+        pd.to_datetime(df['gameDate'], utc=True)
+          .dt.tz_convert('America/New_York')
+          .dt.strftime('%Y-%m-%d %I:%M %p')
+    )
 
-        # Convert the list of dictionaries to a DataFrame
-        df = pd.DataFrame(data)
+    
+    # --- Add notes ---
+    notes_url = "https://api.propfinder.app/mlb/weather-notes"
+    notes_response = requests.get(notes_url)
+    notes_response.raise_for_status()
+    notes_data = notes_response.json()
 
-        df[['away', 'home']] = df['Matchup'].str.split(" @ ", expand=True)
+    if isinstance(notes_data, dict):
+        notes_data = [notes_data]
 
-        # Add in DK team abbreviations 
-        df = df.merge(team_map[['ROTOGRINDERSTEAM', 'DKTEAM']], left_on=['away'], right_on=['ROTOGRINDERSTEAM'], how='left', suffixes=("", "_away"))
-        df = df.merge(team_map[['ROTOGRINDERSTEAM', 'DKTEAM']], left_on=['home'], right_on=['ROTOGRINDERSTEAM'], how='left', suffixes=("", "_home"))
-        df = df[['Tag', 'Tag2', 'Matchup', 'DKTEAM', 'DKTEAM_home', 'Description']]
-        df.rename(columns={'DKTEAM':'Away', 'DKTEAM_home': 'Home'}, inplace=True)
-        
-        # Add the date column to the DataFrame
-        df['date'] = date
+    if len(notes_data) > 0:
+        notes_df = pd.DataFrame(notes_data)
 
-        return df
+        # Keep latest note per gameId
+        notes_df = (
+            notes_df
+            .sort_values("createdAt")
+            .drop_duplicates("gameId", keep="last")
+        )
+
+        notes_df = notes_df[["gameId", "content"]].rename(columns={"content": "weatherNote"})
+
+        # Merge
+        df = df.merge(notes_df, on="gameId", how="left")
     else:
-        # Return an error message if the response is not successful
-        return "Failed to retrieve data. Response status code: {}".format(response.status_code)
+        df["weatherNote"] = ""
+
+    df['weatherNote'] = df['weatherNote'].fillna(" ")
+
+    
+    return df
+
+
+# %%
+# Color-code Kevin
+def color_rows(row):
+    color_map = {
+        "Green": "background-color: #b6f2b6",
+        "Yellow": "background-color: #fff3b0",
+        "Orange": "background-color: #ffd6a5",
+        "Red": "background-color: #ffadad"
+    }
+    return [color_map.get(row["weatherIndicator"], "")] * len(row)
 
 
 # %%
