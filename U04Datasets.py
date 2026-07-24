@@ -282,6 +282,7 @@ def clean_weather(df):
 # Assign play categories to full descriptions
 def create_events(df):
     event_mapping = {
+        
         'Strikeout': 'so',
         'Strikeout Double Play': 'so',
         'Groundout': 'go',

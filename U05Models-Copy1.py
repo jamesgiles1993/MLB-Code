@@ -36,85 +36,51 @@ predict_outcome = keras.models.load_model(os.path.join(model_path, "M01. Park an
 
 
 ### M01. Weather Factors.ipynb
-# This creates weather factors — distance model + outcome model + park dimensions
-wfx_date = "20260722"
+# This creates weather factors
+wfx_date = "20260702"
+
+# Scale
+scale_wfx = pickle.load(open(os.path.join(model_path, "M01. Park and Weather Factors", wfx_date, "scale_wfx.pkl"), 'rb'))
+
+# Predict
+class WeatherNet(nn.Module):
+    def __init__(self, n_inputs, n_outputs, hidden_layers, dropout):
+        super().__init__()
+        layers = []
+        in_dim = n_inputs
+        for h in hidden_layers:
+            layers += [nn.Linear(in_dim, h), nn.ReLU()]
+            if dropout > 0:
+                layers.append(nn.Dropout(dropout))
+            in_dim = h
+        layers.append(nn.Linear(in_dim, n_outputs))
+        self.net = nn.Sequential(*layers)
+    def forward(self, x):
+        return self.net(x)
+
+class TorchEnsemble:
+    def __init__(self, models, device):
+        self.models = models
+        self.device = device
+    def predict(self, X):
+        X_t = torch.tensor(X, dtype=torch.float32).to(self.device)
+        with torch.no_grad():
+            preds = torch.stack([m(X_t) for m in self.models])
+        return preds.mean(dim=0).cpu().numpy()
 
 model_folder = os.path.join(model_path, "M01. Park and Weather Factors", wfx_date)
+cfg = pickle.load(open(os.path.join(model_folder, 'predict_wfx_config.pkl'), 'rb'))
+hidden_layers, dropout, lr, batch_size, weight_decay = cfg['config']
+n_inputs, n_outputs = cfg['n_inputs'], cfg['n_outputs']
 
-class DistanceNet(nn.Module):
-    def __init__(self, n_cont, n_venues, hidden_dims, dropout, embed_dim=8):
-        super().__init__()
-        self.embed_dim = max(1, min(embed_dim, (n_venues + 1) // 2))
-        self.venue_embed = nn.Embedding(n_venues, self.embed_dim)
-        layers, prev = [], n_cont + self.embed_dim
-        for h in hidden_dims:
-            layers += [nn.Linear(prev, h), nn.ReLU(), nn.Dropout(dropout)]
-            prev = h
-        layers.append(nn.Linear(prev, 1))
-        self.net = nn.Sequential(*layers)
-    def forward(self, x_cont, x_cat):
-        v = self.venue_embed(x_cat)
-        return self.net(torch.cat([x_cont, v], dim=1))
+loaded_models = []
+for i in range(cfg['n_models']):
+    m = WeatherNet(n_inputs, n_outputs, hidden_layers, dropout).to(device)
+    m.load_state_dict(torch.load(os.path.join(model_folder, f'predict_wfx_{i}.pt'), map_location=device))
+    m.eval()
+    loaded_models.append(m)
 
-class EventsNet(nn.Module):
-    def __init__(self, n_cont, n_venues, n_classes, hidden_dims, dropout, embed_dim=8):
-        super().__init__()
-        self.embed_dim = max(1, min(embed_dim, (n_venues + 1) // 2))
-        self.venue_embed = nn.Embedding(n_venues, self.embed_dim)
-        layers, prev = [], n_cont + self.embed_dim
-        for h in hidden_dims:
-            layers += [nn.Linear(prev, h), nn.ReLU(), nn.Dropout(dropout)]
-            prev = h
-        layers.append(nn.Linear(prev, n_classes))
-        self.net = nn.Sequential(*layers)
-    def forward(self, x_cont, x_cat):
-        v = self.venue_embed(x_cat)
-        return self.net(torch.cat([x_cont, v], dim=1))
-
-class TorchVenuePredictor:
-    """Analog of the old TorchEnsemble.predict(X), for models that take
-    separate continuous + venue-categorical inputs instead of one X."""
-    def __init__(self, model, device, softmax=False):
-        self.model = model
-        self.device = device
-        self.softmax = softmax
-    def predict(self, X_cont, X_cat):
-        X_cont_t = torch.tensor(X_cont, dtype=torch.float32).to(self.device)
-        X_cat_t = torch.tensor(X_cat, dtype=torch.int64).to(self.device)
-        with torch.no_grad():
-            out = self.model(X_cont_t, X_cat_t)
-            if self.softmax:
-                out = torch.softmax(out, dim=1)
-        return out.cpu().numpy()
-
-# --- Distance model ---
-with open(os.path.join(model_folder, "distance_meta.json")) as f:
-    distance_meta = json.load(f)
-
-features_cont = distance_meta['features_cont']
-venue_cat_dtype = pd.CategoricalDtype(categories=distance_meta['venue_categories'])
-
-distance_best_model = DistanceNet(len(features_cont), distance_meta['n_venues'], distance_meta['hidden_dims'], distance_meta['dropout']).to(device)
-distance_best_model.load_state_dict(torch.load(os.path.join(model_folder, "distance_model.pt"), map_location=device))
-distance_best_model.eval()
-
-scaler = joblib.load(os.path.join(model_folder, "distance_scaler.pkl"))
-predict_distance_wfx = TorchVenuePredictor(distance_best_model, device)
-
-# --- Events model ---
-with open(os.path.join(model_folder, "events_meta.json")) as f:
-    events_meta = json.load(f)
-
-events_features_cont = events_meta['features_cont']
-events_venue_cat_dtype = pd.CategoricalDtype(categories=events_meta['venue_categories'])
-events_classes = events_meta['classes']
-
-events_best_model = EventsNet(len(events_features_cont), events_meta['n_venues'], events_meta['n_classes'], events_meta['hidden_dims'], events_meta['dropout']).to(device)
-events_best_model.load_state_dict(torch.load(os.path.join(model_folder, "events_model.pt"), map_location=device))
-events_best_model.eval()
-
-events_scaler = joblib.load(os.path.join(model_folder, "events_scaler.pkl"))
-predict_events_wfx = TorchVenuePredictor(events_best_model, device, softmax=True)
+predict_wfx = TorchEnsemble(loaded_models, device)
 
 
 
@@ -146,7 +112,8 @@ impute_pitcher_stats = None
 ### M03. Plate Appearances
 # This predicts the outcome of PAs
 ### All Output Approach
-all_filename = "predict_all_512256_A_512x256_LowLR_Reg1e4_26652_20260722"
+# all_filename = "predict_all_512256_A_512x256_LowLR_Reg1e4_88830_20260702"
+all_filename = "predict_all_512256_A_512x256_LowLR_Reg1e4_23964_20260720"
 
 
 # Load the PredictAll wrapper
@@ -154,7 +121,12 @@ with open(os.path.join(model_path, "M03. Plate Appearances", f"{all_filename}_wr
     predict_all = pickle.load(f)
 
 # All - Adjusted with WFX (deprecated)
-all_adjusted_filename = None
+all_adjusted_filename = "predict_all_adjusted_32_87308_20251211"
+
+# Load the PredictAll wrapper
+with open(os.path.join(model_path, "M03. Plate Appearances", f"{all_adjusted_filename}_wrapper.pkl"), "rb") as f:
+    predict_all_adjusted = pickle.load(f)
+
 
 
 ### M04. Pulls

@@ -5,7 +5,7 @@ Simulation Features:
     Last PA (might be helpful for pulls)
         Could be more helpful if it was like, last TB
     B04. Ownership
-    EV
+    EV on bets
 
 Other:
     R04. Other Contests/Contest Choice
